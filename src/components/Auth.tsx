@@ -71,18 +71,11 @@ export default function Auth() {
       setMessage({ type: "error", text: error.message });
     } else if (data?.user && !data?.session) {
       // User already exists but isn't logged in (or confirmation required)
-      // If signing up as organizer, pre-create the organizers record by email
-      if (role === "organizer") {
-        await supabase.from("organizers").upsert(
-          { email: email.trim() },
-          { onConflict: "email" }
-        );
-      }
       setMessage({
         type: "success",
         text:
           role === "organizer"
-            ? "Check your email for a confirmation link. Once confirmed, you'll be recognized as an organizer."
+            ? "Check your email for a confirmation link. After confirming, sign in and select 'I am an organizer' to activate your account."
             : "Check your email for a confirmation link to complete sign up.",
       });
       setView("signin");
