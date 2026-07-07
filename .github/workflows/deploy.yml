@@ -12,6 +12,7 @@ env:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - uses: actions/checkout@v4
 
@@ -26,19 +27,27 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
+      - name: Debug — check VERCEL_TOKEN availability
+        run: |
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then
+            echo "⚠️ VERCEL_TOKEN secret is EMPTY or MISSING"
+          else
+            echo "✅ VERCEL_TOKEN secret is set (length: ${#token})"
+          fi
+
       - name: Pull Vercel environment info
         run: |
           vercel pull \
             --yes \
             --environment=production \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --scope=${{ env.VERCEL_TEAM_ID }}
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --scope="${{ env.VERCEL_TEAM_ID }}"
 
       - name: Build project artifacts
         run: |
           vercel build \
             ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} \
-            --token=${{ secrets.VERCEL_TOKEN }}
+            --token="${{ secrets.VERCEL_TOKEN }}"
 
       - name: Deploy to Vercel
         id: deploy
@@ -46,7 +55,7 @@ jobs:
           URL=$(vercel deploy \
             --prebuilt \
             ${{ github.ref == 'refs/heads/main' && '--prod' || '' }} \
-            --token=${{ secrets.VERCEL_TOKEN }})
+            --token="${{ secrets.VERCEL_TOKEN }}")
           echo "url=$URL" >> $GITHUB_OUTPUT
 
       - name: Comment preview URL on PR
