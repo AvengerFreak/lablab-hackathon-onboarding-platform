@@ -157,6 +157,7 @@ export default function Auth() {
           <div className="flex mb-6 bg-background rounded-xl p-1 border border-border">
             <button
               type="button"
+              aria-label="Sign In tab"
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
                 view === "signin"
                   ? "bg-accent text-black shadow-sm"
@@ -172,6 +173,7 @@ export default function Auth() {
             </button>
             <button
               type="button"
+              aria-label="Sign Up tab"
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
                 view === "signup"
                   ? "bg-accent text-black shadow-sm"

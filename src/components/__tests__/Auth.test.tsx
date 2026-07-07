@@ -56,8 +56,8 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    const signInTab = screen.getByRole("button", { name: "Sign In" });
-    const signUpTab = screen.getByRole("button", { name: "Sign Up" });
+    const signInTab = screen.getByRole("button", { name: "Sign In tab" });
+    const signUpTab = screen.getByRole("button", { name: "Sign Up tab" });
 
     expect(signInTab).toHaveAttribute("aria-pressed", "true");
     expect(signUpTab).toHaveAttribute("aria-pressed", "false");
@@ -68,7 +68,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    const signUpTab = screen.getByRole("button", { name: "Sign Up" });
+    const signUpTab = screen.getByRole("button", { name: "Sign Up tab" });
     await user.click(signUpTab);
 
     expect(signUpTab).toHaveAttribute("aria-pressed", "true");
@@ -104,7 +104,7 @@ describe("Auth", () => {
     await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "mypassword");
 
-    const signInBtn = screen.getByRole("button", { name: /sign in/i });
+    const signInBtn = screen.getByRole("button", { name: "Sign In" });
     await user.click(signInBtn);
 
     expect(mockSignInWithPassword).toHaveBeenCalledWith({
@@ -126,7 +126,7 @@ describe("Auth", () => {
     await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "wrongpass");
 
-    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
 
     expect(
       screen.getByText(/wrong email or password/i)
@@ -146,7 +146,7 @@ describe("Auth", () => {
     await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "pass");
 
-    await user.click(screen.getByRole("button", { name: /sign in/i }));
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
 
     expect(screen.getByText("Email not confirmed")).toBeInTheDocument();
   });
@@ -159,7 +159,7 @@ describe("Auth", () => {
     render(<Auth />);
 
     // Switch to sign up
-    await user.click(screen.getByRole("button", { name: "Sign Up" }));
+    await user.click(screen.getByRole("button", { name: "Sign Up tab" }));
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "new@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "password");
@@ -187,7 +187,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    await user.click(screen.getByRole("button", { name: "Sign Up" }));
+    await user.click(screen.getByRole("button", { name: "Sign Up tab" }));
     await user.type(screen.getByPlaceholderText("you@example.com"), "new@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "password");
 
@@ -212,7 +212,7 @@ describe("Auth", () => {
     // Switch to organizer
     await user.click(screen.getByText("I am an organizer"));
     // Switch to sign up
-    await user.click(screen.getByRole("button", { name: "Sign Up" }));
+    await user.click(screen.getByRole("button", { name: "Sign Up tab" }));
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "org@test.com");
     await user.type(screen.getByPlaceholderText("Password"), "password");
@@ -229,7 +229,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    const submitBtn = screen.getByRole("button", { name: /sign in/i });
+    const submitBtn = screen.getByRole("button", { name: "Sign In" });
     expect(submitBtn).toBeDisabled();
   });
 
