@@ -324,9 +324,11 @@ describe("WizardPlaceholder — progress indicator", () => {
     await setupDefaultMocks();
     renderWizard(Wizard);
 
-    // Each step label appears as an aria-label on a progress dot
+    // Each step label appears as an aria-label on a progress dot.
+    // Use a function matcher because the current step gets a prefix
+    // (e.g. "Current step: AMD Cloud Account").
     for (const label of EXPECTED_STEP_LABELS) {
-      const dots = screen.getAllByLabelText(label);
+      const dots = screen.getAllByLabelText((content) => content.includes(label));
       expect(dots.length, `Progress dot missing for "${label}"`).toBeGreaterThanOrEqual(1);
     }
   });
