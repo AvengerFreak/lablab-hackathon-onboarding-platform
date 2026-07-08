@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
@@ -205,8 +205,9 @@ describe("DashboardPlaceholder", () => {
 
     renderDashboard();
 
-    const noHackathons = await screen.findByText(/no hackathons yet/i);
-    expect(noHackathons).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/no hackathons yet/i)).toBeInTheDocument();
+    });
   });
 
   it("shows no teams state", async () => {
@@ -253,8 +254,9 @@ describe("DashboardPlaceholder", () => {
 
     renderDashboard();
 
-    const noTeams = await screen.findByText(/no teams yet/i);
-    expect(noTeams).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/no teams yet/i)).toBeInTheDocument();
+    });
   });
 
   it("shows table with teams when data exists", async () => {

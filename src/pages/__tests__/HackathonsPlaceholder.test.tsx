@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 function createChain(responses?: {
@@ -182,8 +182,9 @@ describe("HackathonsPlaceholder", () => {
 
     renderHackathons();
 
-    const empty = await screen.findByText(/no hackathons yet/i);
-    expect(empty).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText(/no hackathons yet/i)).toBeInTheDocument();
+    });
   });
 
   it("shows list of hackathons", async () => {
