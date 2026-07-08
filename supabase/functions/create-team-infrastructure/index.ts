@@ -258,10 +258,11 @@ Deno.serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         error: "Already approved",
+        status: "already_approved",
         github_repo_url: t.github_repo_url,
         discord_channel_id: t.discord_channel_id,
       }),
-      { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
@@ -288,22 +289,24 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Verify all participants completed steps 1–3
+  // Verify all participants completed all 5 steps
+  const requiredSteps = ["amd", "fireworks", "natively_ai", "discord", "github"];
   const incomplete = parts.filter((p) => {
     const s = p.steps_completed ?? {};
-    return !(s.amd && s.fireworks && s.natively_ai);
+    return !requiredSteps.every((step) => s[step]);
   });
 
   if (incomplete.length > 0) {
     return new Response(
       JSON.stringify({
-        error: "Not all participants completed steps 1–3",
+        error: "Not all participants completed all steps",
+        status: "incomplete",
         incomplete_participants: incomplete.map((p) => ({
           id: p.id,
           name: p.name,
         })),
       }),
-      { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
 
@@ -396,10 +399,19 @@ Deno.serve(async (req: Request) => {
 
   /* ── Audit log ────────────────────────────────── */
 
+  // Determine actor role: check if the caller is an organizer
+  let actorRole = "participant";
+  const { data: orgCheck } = await sb
+    .from("organizers")
+    .select("id")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+  if (orgCheck) actorRole = "organizer";
+
   await sb.from("audit_logs").insert({
     hackathon_id: t.hackathon_id,
     actor_id: user.id,
-    actor_role: "organizer",
+    actor_role: actorRole,
     action: "create_infrastructure",
     metadata: {
       team_id: body.team_id,
@@ -423,6 +435,7 @@ Deno.serve(async (req: Request) => {
       github_repo_url: githubUrl,
       github_error: githubErr,
       discord_channel_id: discordId,
+      discord_guild_id: discordGuild || null,
       discord_error: discordErr,
       status: bothOk ? "complete" : partial ? "partial" : "failed",
     }),

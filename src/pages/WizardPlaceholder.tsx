@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "../lib/supabase";
 import { useCurrentParticipant } from "../hooks/useAuth";
+import { DISCORD_INVITE_URL } from "../lib/config";
 import type { Tables } from "../lib/database.types";
 import {
   Loader2,
@@ -65,7 +66,7 @@ const STEPS: StepDef[] = [
     label: "Join Discord",
     description:
       "Join the official hackathon Discord server to communicate with your team and get updates from the organizers.",
-    href: "https://discord.gg/lablab",
+    href: DISCORD_INVITE_URL,
     hrefLabel: "Join Discord Server",
   },
   {
@@ -216,6 +217,15 @@ export default function WizardPlaceholder() {
   const [saveError, setSaveError] = useState("");
   const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const [completedMessage, setCompletedMessage] = useState(false);
+  const [infraCreating, setInfraCreating] = useState(false);
+  const [infraResult, setInfraResult] = useState<{
+    github_repo_url: string | null;
+    discord_channel_id: string | null;
+    discord_guild_id: string | null;
+    github_error: string | null;
+    discord_error: string | null;
+    status: string;
+  } | null>(null);
 
   // Determine which step is active (first incomplete step)
   const firstIncomplete = STEPS.findIndex((s) => !steps[s.key]);
@@ -274,12 +284,12 @@ export default function WizardPlaceholder() {
       });
   }, [participant]);
 
-  // Show completed message after all steps done
+  // Show completed message after all steps done AND infrastructure attempted
   useEffect(() => {
-    if (allFiveDone && githubDiscordDone) {
+    if (allFiveDone && githubDiscordDone && infraResult) {
       setCompletedMessage(true);
     }
-  }, [allFiveDone, githubDiscordDone]);
+  }, [allFiveDone, githubDiscordDone, infraResult]);
 
   /* ── Actions ──────────────────────────────────────── */
 
@@ -350,6 +360,41 @@ export default function WizardPlaceholder() {
     });
 
     setSaving(false);
+
+    // Trigger infrastructure creation for the team
+    if (participant.team_id) {
+      setInfraCreating(true);
+      const { data: infraResp, error: infraErr } = await supabase.functions.invoke(
+        "create-team-infrastructure",
+        { body: { team_id: participant.team_id } }
+      );
+      setInfraCreating(false);
+
+      if (infraErr || !infraResp) {
+        // Real error (network, function crash, etc.)
+        setInfraResult({
+          github_repo_url: null,
+          discord_channel_id: null,
+          discord_guild_id: null,
+          github_error: infraErr?.message ?? "Could not reach infrastructure service",
+          discord_error: infraErr?.message ?? "Could not reach infrastructure service",
+          status: "error",
+        });
+      } else {
+        // All business responses now come as data (status 200)
+        setInfraResult(infraResp as typeof infraResult);
+      }
+
+      // Refresh team data to get updated repo/channel info
+      if (participant.team_id) {
+        const { data: updatedTeam } = await supabase
+          .from("teams")
+          .select("*")
+          .eq("id", participant.team_id)
+          .single();
+        if (updatedTeam) setTeam(updatedTeam);
+      }
+    }
   }, [participant, githubUsername, discordUsername]);
 
   /* ── Loading ──────────────────────────────────────── */
@@ -379,6 +424,11 @@ export default function WizardPlaceholder() {
   /* ── All done state ─────────────────────────────── */
 
   if (completedMessage) {
+    const infraSuccess = infraResult?.status === "complete" || infraResult?.status === "partial";
+    const teamHasRepo = team?.github_repo_url || infraResult?.github_repo_url;
+    const teamHasChannel = team?.discord_channel_id || infraResult?.discord_channel_id;
+    const waitingForTeammates = infraResult?.status === "incomplete";
+
     return (
       <div className="max-w-2xl mx-auto">
         {/* Welcome */}
@@ -387,11 +437,14 @@ export default function WizardPlaceholder() {
             <Sparkles className="w-8 h-8 text-accent" aria-hidden="true" />
           </div>
           <h1 className="font-heading text-2xl text-foreground tracking-wider uppercase">
-            You&apos;re All Set!
+            {infraSuccess ? "You're All Set!" : "Onboarding Complete!"}
           </h1>
           <p className="text-foreground/60 mt-2 max-w-md mx-auto">
-            All onboarding steps are complete. Your organizer will create your
-            team&apos;s repo and Discord channel once everyone is ready.
+            {waitingForTeammates
+              ? "Your steps are done! Waiting for your teammates to finish before we create your team infrastructure."
+              : infraSuccess
+                ? "Your team's repo and Discord channel are ready."
+                : "All onboarding steps are complete. Infrastructure could not be created — check back later."}
           </p>
         </div>
 
@@ -426,9 +479,10 @@ export default function WizardPlaceholder() {
             </div>
           )}
 
-          {team?.github_repo_url && (
+          {/* Repo link */}
+          {teamHasRepo && (
             <a
-              href={team.github_repo_url}
+              href={teamHasRepo}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-4 inline-flex items-center gap-2 text-sm text-secondary hover:text-secondary/80 transition-colors duration-150 cursor-pointer"
@@ -437,6 +491,44 @@ export default function WizardPlaceholder() {
               View your team repo
               <ExternalLink className="w-3 h-3" aria-hidden="true" />
             </a>
+          )}
+
+          {infraResult?.github_error && !teamHasRepo && (
+            <p className="mt-4 text-sm text-foreground/50">
+              GitHub repo not created: {infraResult.github_error}
+            </p>
+          )}
+
+          {/* Discord channel */}
+          {teamHasChannel && (
+            <div className="mt-3">
+              <a
+                href={`https://discord.com/channels/${infraResult?.discord_guild_id ?? "@me"}/${infraResult?.discord_channel_id ?? team.discord_channel_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-[#5865F2] hover:text-[#4752C4] transition-colors duration-150 cursor-pointer"
+              >
+                <SiDiscord className="w-4 h-4" aria-hidden="true" />
+                Open Discord Channel
+                <ExternalLink className="w-3 h-3" aria-hidden="true" />
+              </a>
+            </div>
+          )}
+
+          {infraResult?.discord_error && !teamHasChannel && (
+            <p className="mt-4 text-sm text-foreground/50">
+              Discord channel not created: {infraResult.discord_error}
+            </p>
+          )}
+
+          {/* Waiting for teammates */}
+          {waitingForTeammates && (
+            <div className="mt-4 p-4 rounded-xl bg-secondary/5 border border-secondary/10">
+              <div className="flex items-center gap-2 text-secondary text-sm">
+                <AlertCircle className="w-4 h-4" aria-hidden="true" />
+                <span>Waiting for all teammates to complete their steps before creating the team infrastructure.</span>
+              </div>
+            </div>
           )}
         </div>
       </div>
