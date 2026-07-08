@@ -286,10 +286,14 @@ export default function WizardPlaceholder() {
 
   // Show completed message after all steps done AND infrastructure attempted
   useEffect(() => {
-    if (allFiveDone && githubDiscordDone && infraResult) {
+    if (!allFiveDone || !githubDiscordDone) return;
+    // Either we have an infra result from a fresh attempt, or the team
+    // already has infrastructure from a previous session.
+    const teamHasInfra = team?.is_approved || team?.github_repo_url || team?.discord_channel_id;
+    if (infraResult || teamHasInfra) {
       setCompletedMessage(true);
     }
-  }, [allFiveDone, githubDiscordDone, infraResult]);
+  }, [allFiveDone, githubDiscordDone, infraResult, team]);
 
   /* ── Actions ──────────────────────────────────────── */
 

@@ -98,7 +98,10 @@ function renderWizard(Wizard: React.ComponentType) {
 
 let Wizard: React.ComponentType;
 
-async function setupDefaultMocks(participantOverride?: Record<string, unknown>) {
+async function setupDefaultMocks(
+  participantOverride?: Record<string, unknown>,
+  teamOverride?: Record<string, unknown>
+) {
   const participant = participantOverride ?? {
     id: "p-1",
     name: "Test User",
@@ -116,7 +119,7 @@ async function setupDefaultMocks(participantOverride?: Record<string, unknown>) 
 
   // team
   const teamChain = createChain({
-    single: { data: { id: "team-1", name: "My Team" }, error: null },
+    single: { data: teamOverride ?? { id: "team-1", name: "My Team" }, error: null },
   });
   teamChain.select = vi.fn(() => teamChain);
   teamChain.eq = vi.fn(() => teamChain);
@@ -323,7 +326,13 @@ describe("WizardPlaceholder — rendering", () => {
       discord_username: "testuser#1234",
       created_at: "2024-01-01T00:00:00Z",
     };
-    await setupDefaultMocks(participant);
+    await setupDefaultMocks(participant, {
+      id: "team-1",
+      name: "My Team",
+      is_approved: true,
+      github_repo_url: "https://github.com/org/repo",
+      discord_channel_id: "12345",
+    });
     renderWizard(Wizard);
     const msg = await screen.findByText(/you're all set/i);
     expect(msg).toBeInTheDocument();
