@@ -225,6 +225,16 @@ The following tables are expected in your Supabase project:
 
 ### Edge Functions
 
+Edge functions require secrets configured in **Supabase Dashboard → Edge Functions → Secrets**:
+
+| Secret | Description |
+|---|---|
+| `GITHUB_PAT` | *(optional fallback)* GitHub token with `repo` scope — used when team lead does not supply their own PAT |
+| `DISCORD_BOT_TOKEN` | Discord bot token with Manage Channels permission |
+| `DISCORD_GUILD_ID` | Discord server ID where private team channels are created |
+| `GITHUB_TEMPLATE_OWNER` | *(optional)* Template repo owner |
+| `GITHUB_TEMPLATE_REPO` | *(optional)* Template repo name |
+
 To deploy Edge Functions locally:
 
 ```bash

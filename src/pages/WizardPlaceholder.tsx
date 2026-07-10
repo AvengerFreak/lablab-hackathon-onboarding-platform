@@ -100,7 +100,7 @@ const STEPS: StepDef[] = [
   {
     key: "discord",
     label: "Join the team Discord server",
-    description: "Join the official hackathon Discord server. Your team channel will be created automatically when your team is approved.",
+    description: "Join the official hackathon Discord server. Your private team channel is created when you register your team.",
     href: DISCORD_INVITE_URL,
     hrefLabel: "Join Discord →",
   },
@@ -115,9 +115,9 @@ const STEPS: StepDef[] = [
     },
     dynamic: (isTeamCreator) => ({
       label: isTeamCreator ? "Create team GitHub repository" : "Join team GitHub repository",
-      description: isTeamCreator 
-        ? "Your team's GitHub repository will be created automatically when your team is approved."
-        : "Access your team's GitHub repository to collaborate on code with your teammates.",
+      description: isTeamCreator
+        ? "You provided your GitHub token during registration to create the team repo. Teammates are added as collaborators automatically."
+        : "You'll be added to your team's GitHub repository when you register.",
     }),
   },
 ];
@@ -510,9 +510,17 @@ export default function WizardPlaceholder() {
       const nowAllDone = dynamicSteps.every((s) => updated[s.key]);
       if (nowAllDone && participant.team_id) {
         setInfraCreating(true);
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         const { data: infraResp, error: infraErr } = await supabase.functions.invoke(
           "create-team-infrastructure",
-          { body: { team_id: participant.team_id } }
+          {
+            body: { team_id: participant.team_id },
+            headers: session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : undefined,
+          }
         );
         setInfraCreating(false);
         if (infraErr || !infraResp) {

@@ -3,6 +3,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 interface CreateInfraRequest {
   team_id: string;
+  /** Team lead PAT — used once to create a repo under their account. Never stored. */
+  github_pat?: string;
 }
 
 interface Participant {
@@ -21,6 +23,7 @@ interface Team {
   is_approved: boolean;
   github_repo_url: string | null;
   discord_channel_id: string | null;
+  created_by: string | null;
 }
 
 interface Hackathon {
@@ -30,6 +33,28 @@ interface Hackathon {
   github_org: string | null;
   discord_server_id: string | null;
 }
+
+const VIEW_CHANNEL = 0x00000400;
+const SEND_MESSAGES = 0x00000800;
+const READ_MESSAGE_HISTORY = 0x00010000;
+const CONNECT = 0x00100000;
+const MEMBER_CHANNEL_PERMS =
+  VIEW_CHANNEL |
+  SEND_MESSAGES |
+  READ_MESSAGE_HISTORY |
+  CONNECT |
+  0x00001000 |
+  0x00002000 |
+  0x00004000 |
+  0x00008000 |
+  0x00020000 |
+  0x00040000 |
+  0x00080000 |
+  0x00200000 |
+  0x00400000 |
+  0x00800000 |
+  0x01000000 |
+  0x02000000;
 
 /* ── Rate limiter ─────────────────────────────────── */
 
@@ -65,27 +90,61 @@ function slugify(name: string): string {
     .slice(0, 60);
 }
 
+function parseRepoFromUrl(repoUrl: string): { owner: string; repo: string } | null {
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/?#]+)/);
+  if (!match) return null;
+  return { owner: match[1], repo: match[2] };
+}
+
+function normalizeDiscordQuery(username: string): string {
+  return username.split("#")[0].trim();
+}
+
+async function getGitHubLogin(pat: string): Promise<string | null> {
+  try {
+    const response = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "hackathon-onboarding",
+      },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return typeof data.login === "string" ? data.login : null;
+  } catch {
+    return null;
+  }
+}
+
 async function createGitHubRepo(
   teamName: string,
   hackathonSlug: string,
   githubOrg: string | null,
   pat: string,
   templateOwner: string,
-  templateRepo: string
+  templateRepo: string,
+  underTeamLeadAccount = false
 ): Promise<{ url: string | null; error: string | null }> {
   const repoName = `${hackathonSlug}-${slugify(teamName)}`;
 
-  const useTemplate = templateOwner && templateRepo;
+  const useTemplate = !underTeamLeadAccount && templateOwner && templateRepo;
+  let templateOwnerForGenerate = githubOrg || templateOwner;
+
+  if (underTeamLeadAccount && templateOwner && templateRepo) {
+    const login = await getGitHubLogin(pat);
+    if (login) templateOwnerForGenerate = login;
+  }
 
   const endpoint = useTemplate
     ? `https://api.github.com/repos/${templateOwner}/${templateRepo}/generate`
-    : githubOrg
-      ? `https://api.github.com/orgs/${githubOrg}/repos`
-      : `https://api.github.com/user/repos`;
+    : underTeamLeadAccount || !githubOrg
+      ? `https://api.github.com/user/repos`
+      : `https://api.github.com/orgs/${githubOrg}/repos`;
 
   const body: Record<string, unknown> = useTemplate
     ? {
-        owner: githubOrg || templateOwner,
+        owner: templateOwnerForGenerate,
         name: repoName,
         description: `Team ${teamName} — ${hackathonSlug} Hackathon`,
         include_all_branches: false,
@@ -128,13 +187,165 @@ async function createGitHubRepo(
   }
 }
 
+async function addGitHubCollaborators(
+  repoUrl: string,
+  participants: Participant[],
+  teamLeadGithub: string | null,
+  pat: string
+): Promise<{ added: string[]; errors: string[] }> {
+  const parsed = parseRepoFromUrl(repoUrl);
+  if (!parsed) {
+    return { added: [], errors: ["Invalid GitHub repo URL"] };
+  }
+
+  const added: string[] = [];
+  const errors: string[] = [];
+  const seen = new Set<string>();
+
+  for (const participant of participants) {
+    const username = participant.github_username?.trim();
+    if (!username || seen.has(username.toLowerCase())) continue;
+    seen.add(username.toLowerCase());
+
+    const permission =
+      teamLeadGithub &&
+      username.toLowerCase() === teamLeadGithub.toLowerCase()
+        ? "admin"
+        : "push";
+
+    try {
+      const response = await fetch(
+        `https://api.github.com/repos/${parsed.owner}/${parsed.repo}/collaborators/${encodeURIComponent(username)}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "hackathon-onboarding",
+          },
+          body: JSON.stringify({ permission }),
+        }
+      );
+
+      if (response.ok || response.status === 204) {
+        added.push(username);
+      } else {
+        const errBody = await response.text().catch(() => "Unknown");
+        errors.push(`${username}: GitHub API (${response.status}) ${errBody.slice(0, 120)}`);
+      }
+    } catch (err) {
+      errors.push(
+        `${username}: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    }
+  }
+
+  return { added, errors };
+}
+
+async function findDiscordMemberId(
+  guildId: string,
+  discordUsername: string,
+  botToken: string
+): Promise<string | null> {
+  const query = normalizeDiscordQuery(discordUsername);
+  if (!query) return null;
+
+  const membersResponse = await fetch(
+    `https://discord.com/api/v10/guilds/${guildId}/members/search?query=${encodeURIComponent(query)}&limit=10`,
+    {
+      method: "GET",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "User-Agent": "hackathon-onboarding",
+      },
+    }
+  );
+
+  if (!membersResponse.ok) return null;
+
+  const members = await membersResponse.json();
+  if (!Array.isArray(members) || members.length === 0) return null;
+
+  const normalized = query.toLowerCase();
+  const exact = members.find((member: { user?: { username?: string; global_name?: string } }) => {
+    const username = member.user?.username?.toLowerCase();
+    const globalName = member.user?.global_name?.toLowerCase();
+    return username === normalized || globalName === normalized;
+  });
+
+  const chosen = exact ?? members[0];
+  return chosen?.user?.id ?? null;
+}
+
+async function grantDiscordChannelAccess(
+  channelId: string,
+  userId: string,
+  botToken: string
+): Promise<string | null> {
+  const response = await fetch(
+    `https://discord.com/api/v10/channels/${channelId}/permissions/${userId}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bot ${botToken}`,
+        "Content-Type": "application/json",
+        "User-Agent": "hackathon-onboarding",
+      },
+      body: JSON.stringify({
+        allow: String(MEMBER_CHANNEL_PERMS),
+        type: 1,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errBody = await response.text().catch(() => "Unknown");
+    return `Discord permissions (${response.status}): ${errBody.slice(0, 200)}`;
+  }
+
+  return null;
+}
+
+async function syncDiscordMembers(
+  channelId: string,
+  guildId: string,
+  participants: Participant[],
+  botToken: string
+): Promise<{ added: string[]; errors: string[] }> {
+  const added: string[] = [];
+  const errors: string[] = [];
+
+  for (const participant of participants) {
+    const discordUsername = participant.discord_username?.trim();
+    if (!discordUsername) continue;
+
+    const userId = await findDiscordMemberId(guildId, discordUsername, botToken);
+    if (!userId) {
+      errors.push(
+        `${discordUsername}: not found in Discord server — join the hackathon server first`
+      );
+      continue;
+    }
+
+    const err = await grantDiscordChannelAccess(channelId, userId, botToken);
+    if (err) {
+      errors.push(`${discordUsername}: ${err}`);
+    } else {
+      added.push(discordUsername);
+    }
+  }
+
+  return { added, errors };
+}
+
 async function createDiscordChannel(
   teamName: string,
   hackathonName: string,
   botToken: string,
   guildId: string,
-  participantNames: string[],
-  participantDiscordUsernames: string[]
+  participantNames: string[]
 ): Promise<{ channelId: string | null; error: string | null }> {
   const channelName = `team-${slugify(teamName)}`;
   const topic =
@@ -155,6 +366,13 @@ async function createDiscordChannel(
           type: 0,
           topic: topic.slice(0, 1000),
           reason: `Auto-created for ${teamName}`,
+          permission_overwrites: [
+            {
+              id: guildId,
+              type: 0,
+              deny: String(VIEW_CHANNEL),
+            },
+          ],
         }),
       }
     );
@@ -168,53 +386,7 @@ async function createDiscordChannel(
     }
 
     const data = await response.json();
-    const channelId = data.id as string;
-
-    // Add participants to the channel by their Discord usernames
-    for (const discordUsername of participantDiscordUsernames) {
-      if (!discordUsername) continue;
-      
-      // Get guild members to find the user ID from username
-      const membersResponse = await fetch(
-        `https://discord.com/api/v10/guilds/${guildId}/members/search?query=${encodeURIComponent(discordUsername)}`,
-        {
-          method: "GET",
-          headers: {
-            Authorization: `Bot ${botToken}`,
-            "User-Agent": "hackathon-onboarding",
-          },
-        }
-      );
-
-      if (membersResponse.ok) {
-        const members = await membersResponse.json();
-        if (members && members.length > 0) {
-          const member = members[0];
-          const userId = member.user?.id;
-          
-          if (userId) {
-            // Add permission overwrite for the user in the channel
-            await fetch(
-              `https://discord.com/api/v10/channels/${channelId}/permissions/${userId}`,
-              {
-                method: "PUT",
-                headers: {
-                  Authorization: `Bot ${botToken}`,
-                  "Content-Type": "application/json",
-                  "User-Agent": "hackathon-onboarding",
-                },
-                body: JSON.stringify({
-                  allow: 0x00000400 | 0x00000800 | 0x00001000 | 0x00002000 | 0x00004000 | 0x00008000 | 0x00010000 | 0x00020000 | 0x00040000 | 0x00080000 | 0x00100000 | 0x00200000 | 0x00400000 | 0x00800000 | 0x01000000 | 0x02000000,
-                  type: 1,
-                }),
-              }
-            );
-          }
-        }
-      }
-    }
-
-    return { channelId, error: null };
+    return { channelId: data.id as string, error: null };
   } catch (err) {
     return {
       channelId: null,
@@ -301,18 +473,6 @@ Deno.serve(async (req: Request) => {
 
   const t = team as unknown as Team;
 
-  if (t.is_approved) {
-    return new Response(
-      JSON.stringify({
-        error: "Already approved",
-        status: "already_approved",
-        github_repo_url: t.github_repo_url,
-        discord_channel_id: t.discord_channel_id,
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
-
   /* ── Fetch participants ───────────────────────── */
 
   const { data: participants, error: partErr } = await sb
@@ -336,26 +496,10 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // Verify all participants completed all 5 steps
-  const requiredSteps = ["amd", "fireworks", "natively_ai", "discord", "github"];
-  const incomplete = parts.filter((p) => {
-    const s = p.steps_completed ?? {};
-    return !requiredSteps.every((step) => s[step]);
-  });
-
-  if (incomplete.length > 0) {
-    return new Response(
-      JSON.stringify({
-        error: "Not all participants completed all steps",
-        status: "incomplete",
-        incomplete_participants: incomplete.map((p) => ({
-          id: p.id,
-          name: p.name,
-        })),
-      }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
-  }
+  const teamLead = t.created_by
+    ? parts.find((p) => p.id === t.created_by) ?? parts[0]
+    : parts[0];
+  const teamLeadGithub = teamLead.github_username?.trim() || null;
 
   /* ── Fetch hackathon ──────────────────────────── */
 
@@ -383,63 +527,153 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  /* ── Gather env vars ──────────────────────────── */
+  /* ── Resolve GitHub PAT ───────────────────────── */
 
-  const githubPat = Deno.env.get("GITHUB_PAT");
+  const teamLeadPat = body.github_pat?.trim() || null;
+  const envGithubPat = Deno.env.get("GITHUB_PAT") || null;
+
+  if (teamLeadPat) {
+    if (!t.created_by) {
+      return new Response(
+        JSON.stringify({ error: "Team lead must register before providing a GitHub PAT" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    const leadParticipant = parts.find((p) => p.id === t.created_by);
+    if (!leadParticipant) {
+      return new Response(JSON.stringify({ error: "Team lead not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const { data: leadAuth } = await sb
+      .from("participants")
+      .select("auth_user_id")
+      .eq("id", t.created_by)
+      .single();
+    if (leadAuth?.auth_user_id !== user.id) {
+      return new Response(
+        JSON.stringify({ error: "Only the team lead can provide a GitHub PAT" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+  }
+
+  const githubPat = teamLeadPat || envGithubPat;
+  const useTeamLeadAccount = !!teamLeadPat;
   const tmplOwner = Deno.env.get("GITHUB_TEMPLATE_OWNER") || "";
   const tmplRepo = Deno.env.get("GITHUB_TEMPLATE_REPO") || "";
   const discordToken = Deno.env.get("DISCORD_BOT_TOKEN");
-  const discordGuild = Deno.env.get("DISCORD_GUILD_ID");
+  const discordGuild = h.discord_server_id || Deno.env.get("DISCORD_GUILD_ID");
 
-  let githubUrl: string | null = null;
+  let githubUrl: string | null = t.github_repo_url;
   let githubErr: string | null = null;
-  let discordId: string | null = null;
+  let discordId: string | null = t.discord_channel_id;
   let discordErr: string | null = null;
+  let githubSyncErrors: string[] = [];
+  let discordSyncErrors: string[] = [];
+  let githubAdded: string[] = [];
+  let discordAdded: string[] = [];
 
-  /* ── Create GitHub repo ───────────────────────── */
+  const needsGithub = !githubUrl;
+  const needsDiscord = !discordId;
 
-  if (githubPat) {
-    const result = await createGitHubRepo(
-      t.name,
-      h.slug,
-      h.github_org || null,
-      githubPat,
-      tmplOwner,
-      tmplRepo
-    );
-    githubUrl = result.url;
-    githubErr = result.error;
-  } else {
-    githubErr = "GITHUB_PAT not configured";
+  /* ── Create GitHub repo if missing ────────────── */
+
+  if (needsGithub) {
+    if (githubPat) {
+      const result = await createGitHubRepo(
+        t.name,
+        h.slug,
+        useTeamLeadAccount ? null : h.github_org || null,
+        githubPat,
+        tmplOwner,
+        tmplRepo,
+        useTeamLeadAccount
+      );
+      githubUrl = result.url;
+      githubErr = result.error;
+    } else {
+      githubErr =
+        "Team lead GitHub Personal Access Token required to create the repository";
+    }
   }
 
-  /* ── Create Discord channel ───────────────────── */
+  /* ── Create Discord channel if missing ────────── */
 
-  if (discordToken && discordGuild) {
-    const result = await createDiscordChannel(
-      t.name,
-      h.name,
-      discordToken,
-      discordGuild,
-      parts.map((p) => p.name),
-      parts.map((p) => p.discord_username || "")
+  if (needsDiscord) {
+    if (discordToken && discordGuild) {
+      const result = await createDiscordChannel(
+        t.name,
+        h.name,
+        discordToken,
+        discordGuild,
+        parts.map((p) => p.name)
+      );
+      discordId = result.channelId;
+      discordErr = result.error;
+    } else {
+      discordErr = !discordToken
+        ? "DISCORD_BOT_TOKEN not configured"
+        : "DISCORD_GUILD_ID not configured";
+    }
+  }
+
+  /* ── Sync members to GitHub repo ──────────────── */
+
+  if (githubUrl && githubPat) {
+    const sync = await addGitHubCollaborators(
+      githubUrl,
+      parts,
+      teamLeadGithub,
+      githubPat
     );
-    discordId = result.channelId;
-    discordErr = result.error;
-  } else {
-    discordErr = !discordToken ? "DISCORD_BOT_TOKEN not configured" : "DISCORD_GUILD_ID not configured";
+    githubAdded = sync.added;
+    githubSyncErrors = sync.errors;
+    if (githubSyncErrors.length > 0 && !githubErr) {
+      githubErr = githubSyncErrors.join("; ");
+    }
+  }
+
+  /* ── Sync members to Discord channel ──────────── */
+
+  if (discordId && discordToken && discordGuild) {
+    const sync = await syncDiscordMembers(
+      discordId,
+      discordGuild,
+      parts,
+      discordToken
+    );
+    discordAdded = sync.added;
+    discordSyncErrors = sync.errors;
+    if (discordSyncErrors.length > 0 && !discordErr) {
+      discordErr = discordSyncErrors.join("; ");
+    }
+  } else if (!discordToken && !discordErr) {
+    discordErr = "DISCORD_BOT_TOKEN not configured";
+  } else if (!discordGuild && !discordErr) {
+    discordErr = "DISCORD_GUILD_ID not configured";
   }
 
   /* ── Update team record ───────────────────────── */
 
   const updates: Record<string, unknown> = {};
-  if (githubUrl) updates.github_repo_url = githubUrl;
-  if (discordId) updates.discord_channel_id = discordId;
+  if (githubUrl && githubUrl !== t.github_repo_url) {
+    updates.github_repo_url = githubUrl;
+  }
+  if (discordId && discordId !== t.discord_channel_id) {
+    updates.discord_channel_id = discordId;
+  }
 
-  const bothOk = githubUrl && discordId;
-  const partial = (githubUrl || discordId) && !bothOk;
+  const infraExists = !!(githubUrl && discordId);
+  const membersSynced =
+    githubAdded.length > 0 ||
+    discordAdded.length > 0 ||
+    (githubUrl && discordId && parts.length > 0);
 
-  if (bothOk) updates.is_approved = true;
+  if (infraExists && (needsGithub || needsDiscord || membersSynced)) {
+    updates.is_approved = true;
+  }
 
   if (Object.keys(updates).length > 0) {
     await sb.from("teams").update(updates).eq("id", body.team_id);
@@ -447,7 +681,6 @@ Deno.serve(async (req: Request) => {
 
   /* ── Audit log ────────────────────────────────── */
 
-  // Determine actor role: check if the caller is an organizer
   let actorRole = "participant";
   const { data: orgCheck } = await sb
     .from("organizers")
@@ -455,6 +688,16 @@ Deno.serve(async (req: Request) => {
     .eq("auth_user_id", user.id)
     .maybeSingle();
   if (orgCheck) actorRole = "organizer";
+
+  const bothOk = !!(githubUrl && discordId);
+  const partial = (githubUrl || discordId) && !bothOk;
+  const status = bothOk
+    ? needsGithub || needsDiscord
+      ? "complete"
+      : "synced"
+    : partial
+      ? "partial"
+      : "failed";
 
   await sb.from("audit_logs").insert({
     hackathon_id: t.hackathon_id,
@@ -468,7 +711,11 @@ Deno.serve(async (req: Request) => {
       discord_channel_id: discordId,
       github_error: githubErr,
       discord_error: discordErr,
-      status: bothOk ? "complete" : partial ? "partial" : "failed",
+      github_collaborators_added: githubAdded,
+      discord_members_added: discordAdded,
+      github_sync_errors: githubSyncErrors,
+      discord_sync_errors: discordSyncErrors,
+      status,
     },
   });
 
@@ -485,7 +732,9 @@ Deno.serve(async (req: Request) => {
       discord_channel_id: discordId,
       discord_guild_id: discordGuild || null,
       discord_error: discordErr,
-      status: bothOk ? "complete" : partial ? "partial" : "failed",
+      github_collaborators_added: githubAdded,
+      discord_members_added: discordAdded,
+      status,
     }),
     { status: statusCode, headers: { ...corsHeaders, "Content-Type": "application/json" } }
   );

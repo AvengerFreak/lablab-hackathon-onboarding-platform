@@ -18,6 +18,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { SiGithub, SiDiscord } from "react-icons/si";
+import TeamLeadGithubPatStep from "../components/TeamLeadGithubPatStep";
 
 /* ── Types ─────────────────────────────────────────── */
 
@@ -26,7 +27,14 @@ interface HackathonWithTeams extends Tables<"hackathons"> {
   teamCount: number;
 }
 
-type RegistrationStep = "link" | "role" | "hackathon" | "team" | "confirming" | "done";
+type RegistrationStep =
+  | "link"
+  | "role"
+  | "hackathon"
+  | "team"
+  | "github_pat"
+  | "confirming"
+  | "done";
 
 /* ── Helpers ────────────────────────────────────────── */
 
@@ -72,6 +80,8 @@ export default function RegistrationPage() {
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [confirmingUnregister, setConfirmingUnregister] = useState(false);
   const [confirmingLeaveTeam, setConfirmingLeaveTeam] = useState(false);
+  const [teamWasCreated, setTeamWasCreated] = useState(false);
+  const [teamLeadGithubPat, setTeamLeadGithubPat] = useState("");
 
   // Initialize linked accounts and starting step from auth state
   useEffect(() => {
@@ -207,6 +217,8 @@ export default function RegistrationPage() {
       setSelectedHackathon(hack);
       setSelectedTeam(null);
       setNewTeamName("");
+      setTeamWasCreated(false);
+      setTeamLeadGithubPat("");
       setError(null);
 
       if (chosenRole === "organizer") {
@@ -224,6 +236,8 @@ export default function RegistrationPage() {
   const handleTeamSelect = useCallback((team: Tables<"teams">) => {
     setSelectedTeam(team);
     setNewTeamName("");
+    setTeamWasCreated(false);
+    setTeamLeadGithubPat("");
     setError(null);
   }, []);
 
@@ -273,8 +287,11 @@ export default function RegistrationPage() {
     }
 
     setSelectedTeam(data as Tables<"teams">);
+    setTeamWasCreated(true);
+    setTeamLeadGithubPat("");
     setNewTeamName("");
     setSubmitting(false);
+    setStep("github_pat");
   }, [newTeamName, selectedHackathon]);
 
   /* ── Sign Out ─────────────────────────────────────── */
@@ -391,11 +408,18 @@ export default function RegistrationPage() {
           return;
         }
 
+        if (teamWasCreated && !teamLeadGithubPat.trim()) {
+          setError("Please provide your GitHub Personal Access Token to create the team repository.");
+          setSubmitting(false);
+          setStep("github_pat");
+          return;
+        }
+
         // Get GitHub and Discord usernames from linked account state
         const ghUsername = githubUsername.trim() || null;
         const dcUsername = discordUsername.trim() || null;
 
-        const { error: participantError } = await supabase
+        const { data: participantData, error: participantError } = await supabase
           .from("participants")
           .upsert(
             {
@@ -408,10 +432,40 @@ export default function RegistrationPage() {
               discord_username: dcUsername,
             },
             { onConflict: "auth_user_id" }
-          );
+          )
+          .select("id")
+          .single();
 
         if (participantError) throw new Error(participantError.message);
 
+        if (teamWasCreated && participantData?.id) {
+          await supabase
+            .from("teams")
+            .update({ created_by: participantData.id })
+            .eq("id", selectedTeam.id);
+        }
+
+        // Provision GitHub repo + Discord channel for the team
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (currentSession?.access_token) {
+          const { error: infraError } = await supabase.functions.invoke(
+            "create-team-infrastructure",
+            {
+              body: {
+                team_id: selectedTeam.id,
+                ...(teamWasCreated && teamLeadGithubPat.trim()
+                  ? { github_pat: teamLeadGithubPat.trim() }
+                  : {}),
+              },
+              headers: { Authorization: `Bearer ${currentSession.access_token}` },
+            }
+          );
+          if (infraError) {
+            console.error("Team infrastructure provisioning failed:", infraError);
+          }
+        }
+
+        setTeamLeadGithubPat("");
         setStep("done");
       }
     } catch (err) {
@@ -421,7 +475,15 @@ export default function RegistrationPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedHackathon, selectedTeam, chosenRole, githubUsername, discordUsername]);
+  }, [
+    selectedHackathon,
+    selectedTeam,
+    chosenRole,
+    githubUsername,
+    discordUsername,
+    teamWasCreated,
+    teamLeadGithubPat,
+  ]);
 
   /* ── After success, redirect ──────────────────────── */
 
@@ -820,19 +882,43 @@ export default function RegistrationPage() {
               </div>
             </div>
 
-            {/* Continue */}
-            <div className="mt-6">
-              <button
-                type="button"
-                onClick={() => setStep("confirming")}
-                disabled={!selectedTeam || submitting}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-accent text-white font-medium hover:bg-accent/90 active:scale-[0.97] transition-all duration-150 disabled:opacity-50 cursor-pointer"
-              >
-                <ChevronRight className="w-4 h-4" aria-hidden="true" />
-                Continue with {selectedTeam?.name ?? "selected team"}
-              </button>
-            </div>
+            {/* Continue — joining an existing team only */}
+            {!teamWasCreated && (
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={() => setStep("confirming")}
+                  disabled={!selectedTeam || submitting}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-accent text-white font-medium hover:bg-accent/90 active:scale-[0.97] transition-all duration-150 disabled:opacity-50 cursor-pointer"
+                >
+                  <ChevronRight className="w-4 h-4" aria-hidden="true" />
+                  Continue with {selectedTeam?.name ?? "selected team"}
+                </button>
+              </div>
+            )}
           </div>
+        )}
+
+        {/* ─── Step: Team Lead GitHub PAT ──────────── */}
+        {step === "github_pat" && selectedTeam && (
+          <TeamLeadGithubPatStep
+            teamName={selectedTeam.name}
+            githubUsername={githubUsername}
+            value={teamLeadGithubPat}
+            onChange={setTeamLeadGithubPat}
+            onContinue={() => setStep("confirming")}
+            onBack={async () => {
+              if (selectedTeam?.id) {
+                await supabase.from("teams").delete().eq("id", selectedTeam.id);
+              }
+              setTeamLeadGithubPat("");
+              setTeamWasCreated(false);
+              setSelectedTeam(null);
+              setStep("team");
+            }}
+            submitting={submitting}
+            error={error}
+          />
         )}
 
 
@@ -897,7 +983,13 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() =>
-                  setStep(chosenRole === "organizer" ? "hackathon" : "team")
+                  setStep(
+                    chosenRole === "organizer"
+                      ? "hackathon"
+                      : teamWasCreated
+                        ? "github_pat"
+                        : "team"
+                  )
                 }
                 disabled={submitting}
                 className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm text-foreground/70 hover:bg-muted transition-all duration-150 disabled:opacity-50 cursor-pointer"
