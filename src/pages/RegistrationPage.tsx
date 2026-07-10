@@ -190,7 +190,7 @@ export default function RegistrationPage() {
 
     const { data: existingParticipant } = await supabase
       .from("participants")
-      .select("team_id")
+      .select("id, team_id")
       .eq("auth_user_id", session.user.id)
       .eq("hackathon_id", selectedHackathon.id)
       .maybeSingle();
@@ -207,6 +207,7 @@ export default function RegistrationPage() {
         hackathon_id: selectedHackathon.id,
         name: newTeamName.trim(),
         is_approved: false,
+        created_by: existingParticipant?.id || null,
       })
       .select()
       .single();

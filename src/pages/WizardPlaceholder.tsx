@@ -44,6 +44,7 @@ interface StepDef {
   href2?: string;
   hrefLabel2?: string;
   support?: SupportLink;
+  dynamic?: (isTeamCreator: boolean) => Partial<StepDef>;
 }
 
 type ReportTarget = {
@@ -112,6 +113,12 @@ const STEPS: StepDef[] = [
       label: "Learn about GitHub collaboration →",
       note: "Need help using GitHub?",
     },
+    dynamic: (isTeamCreator) => ({
+      label: isTeamCreator ? "Create team GitHub repository" : "Join team GitHub repository",
+      description: isTeamCreator 
+        ? "Your team's GitHub repository will be created automatically when your team is approved."
+        : "Access your team's GitHub repository to collaborate on code with your teammates.",
+    }),
   },
 ];
 
@@ -130,6 +137,16 @@ function getStepsCompleted(raw: unknown): StepsCompleted {
     };
   }
   return { amd: false, fireworks: false, natively_ai: false, lablab_discord: false, discord: false, github: false };
+}
+
+function getDynamicSteps(steps: StepDef[], isTeamCreator: boolean): StepDef[] {
+  return steps.map((step) => {
+    if (step.dynamic) {
+      const dynamicProps = step.dynamic(isTeamCreator);
+      return { ...step, ...dynamicProps };
+    }
+    return step;
+  });
 }
 
 /* ── Step Detail Panel ─────────────────────────────── */
@@ -403,14 +420,16 @@ export default function WizardPlaceholder() {
     status: string;
   } | null>(null);
 
-  const completedCount = STEPS.filter((s) => steps[s.key]).length;
-  const allDone = completedCount === STEPS.length;
+  const isTeamCreator = participant?.id === team?.created_by;
+  const dynamicSteps = getDynamicSteps(STEPS, !!isTeamCreator);
+  const completedCount = dynamicSteps.filter((s) => steps[s.key]).length;
+  const allDone = completedCount === dynamicSteps.length;
 
   useEffect(() => {
     if (!participant) return;
     const parsed = getStepsCompleted(participant.steps_completed);
     setSteps(parsed);
-    const firstIncomplete = STEPS.findIndex((s) => !parsed[s.key]);
+    const firstIncomplete = dynamicSteps.findIndex((s) => !parsed[s.key]);
     setActiveStep(firstIncomplete === -1 ? null : firstIncomplete);
     if (participant.team_id) {
       supabase.from("teams").select("*").eq("id", participant.team_id).single()
@@ -461,7 +480,7 @@ export default function WizardPlaceholder() {
       });
       setSteps(updated);
       setSaving(false);
-      const nowAllDone = STEPS.every((s) => updated[s.key]);
+      const nowAllDone = dynamicSteps.every((s) => updated[s.key]);
       if (nowAllDone && participant.team_id) {
         setInfraCreating(true);
         const { data: infraResp, error: infraErr } = await supabase.functions.invoke(
@@ -483,11 +502,11 @@ export default function WizardPlaceholder() {
           .eq("id", participant.team_id).single();
         if (updatedTeam) setTeam(updatedTeam);
       } else {
-        const nextIdx = STEPS.findIndex((s) => !updated[s.key]);
+        const nextIdx = dynamicSteps.findIndex((s) => !updated[s.key]);
         setActiveStep(nextIdx === -1 ? null : nextIdx);
       }
     },
-    [participant, steps, infraResult]
+    [participant, steps, infraResult, dynamicSteps]
   );
 
   if (participantLoading) {
@@ -551,9 +570,9 @@ export default function WizardPlaceholder() {
         <div className="space-y-4">
           {activeStep !== null && !allDone ? (
             <StepDetail
-              step={STEPS[activeStep]}
+              step={dynamicSteps[activeStep]}
               index={activeStep}
-              isComplete={steps[STEPS[activeStep].key]}
+              isComplete={steps[dynamicSteps[activeStep].key]}
               saving={saving}
               onMark={markStep}
             />
@@ -654,18 +673,18 @@ export default function WizardPlaceholder() {
           <div className="w-full bg-border rounded-full h-1 mb-5 overflow-hidden">
             <div
               className="h-1 rounded-full bg-accent transition-all duration-500"
-              style={{ width: `${(completedCount / STEPS.length) * 100}%` }}
+              style={{ width: `${(completedCount / dynamicSteps.length) * 100}%` }}
               role="progressbar"
               aria-valuenow={completedCount}
               aria-valuemin={0}
-              aria-valuemax={STEPS.length}
-              aria-label={`${completedCount} of ${STEPS.length} steps complete`}
+              aria-valuemax={dynamicSteps.length}
+              aria-label={`${completedCount} of ${dynamicSteps.length} steps complete`}
             />
           </div>
 
           {/* Checklist items */}
           <ol className="space-y-1" aria-label="Setup checklist">
-            {STEPS.map((step, i) => {
+            {dynamicSteps.map((step, i) => {
               const isComplete = steps[step.key];
               const isActive = activeStep === i;
               return (
@@ -711,7 +730,7 @@ export default function WizardPlaceholder() {
 
           {/* Footer */}
           <div className="mt-5 pt-4 border-t border-border/40 flex items-center justify-between text-xs text-foreground/40">
-            <span>{completedCount} of {STEPS.length} complete</span>
+            <span>{completedCount} of {dynamicSteps.length} complete</span>
             {allDone && (
               <span className="text-accent font-medium flex items-center gap-1">
                 <Check className="w-3 h-3" />All done!

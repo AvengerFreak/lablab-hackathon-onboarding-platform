@@ -243,6 +243,7 @@ export type Database = {
       teams: {
         Row: {
           created_at: string
+          created_by: string | null
           discord_channel_id: string | null
           github_repo_url: string | null
           hackathon_id: string
@@ -254,6 +255,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           discord_channel_id?: string | null
           github_repo_url?: string | null
           hackathon_id: string
@@ -265,6 +267,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           discord_channel_id?: string | null
           github_repo_url?: string | null
           hackathon_id?: string

@@ -133,7 +133,8 @@ async function createDiscordChannel(
   hackathonName: string,
   botToken: string,
   guildId: string,
-  participantNames: string[]
+  participantNames: string[],
+  participantDiscordUsernames: string[]
 ): Promise<{ channelId: string | null; error: string | null }> {
   const channelName = `team-${slugify(teamName)}`;
   const topic =
@@ -167,7 +168,53 @@ async function createDiscordChannel(
     }
 
     const data = await response.json();
-    return { channelId: data.id as string, error: null };
+    const channelId = data.id as string;
+
+    // Add participants to the channel by their Discord usernames
+    for (const discordUsername of participantDiscordUsernames) {
+      if (!discordUsername) continue;
+      
+      // Get guild members to find the user ID from username
+      const membersResponse = await fetch(
+        `https://discord.com/api/v10/guilds/${guildId}/members/search?query=${encodeURIComponent(discordUsername)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bot ${botToken}`,
+            "User-Agent": "hackathon-onboarding",
+          },
+        }
+      );
+
+      if (membersResponse.ok) {
+        const members = await membersResponse.json();
+        if (members && members.length > 0) {
+          const member = members[0];
+          const userId = member.user?.id;
+          
+          if (userId) {
+            // Add permission overwrite for the user in the channel
+            await fetch(
+              `https://discord.com/api/v10/channels/${channelId}/permissions/${userId}`,
+              {
+                method: "PUT",
+                headers: {
+                  Authorization: `Bot ${botToken}`,
+                  "Content-Type": "application/json",
+                  "User-Agent": "hackathon-onboarding",
+                },
+                body: JSON.stringify({
+                  allow: 0x00000400 | 0x00000800 | 0x00001000 | 0x00002000 | 0x00004000 | 0x00008000 | 0x00010000 | 0x00020000 | 0x00040000 | 0x00080000 | 0x00100000 | 0x00200000 | 0x00400000 | 0x00800000 | 0x01000000 | 0x02000000,
+                  type: 1,
+                }),
+              }
+            );
+          }
+        }
+      }
+    }
+
+    return { channelId, error: null };
   } catch (err) {
     return {
       channelId: null,
@@ -374,7 +421,8 @@ Deno.serve(async (req: Request) => {
       h.name,
       discordToken,
       discordGuild,
-      parts.map((p) => p.name)
+      parts.map((p) => p.name),
+      parts.map((p) => p.discord_username || "")
     );
     discordId = result.channelId;
     discordErr = result.error;
