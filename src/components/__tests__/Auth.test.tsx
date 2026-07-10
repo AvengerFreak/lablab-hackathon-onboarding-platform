@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render as baseRender, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { APP_NAME, APP_TAGLINE } from "../../lib/config";
+
+const render = (ui: React.ReactElement) => baseRender(<MemoryRouter>{ui}</MemoryRouter>);
 
 // Mock supabase
 const mockSignInWithPassword = vi.fn();
@@ -326,5 +329,15 @@ describe("Auth", () => {
     expect(
       screen.getByText(/organizers can create and manage hackathons/i)
     ).toBeInTheDocument();
+  });
+
+  it("navigates home when logo is clicked", async () => {
+    const user = userEvent.setup();
+    const Auth = (await import("../Auth")).default;
+    render(<Auth />);
+
+    const logoBtn = screen.getByRole("button", { name: /go to home/i });
+    expect(logoBtn).toBeInTheDocument();
+    await user.click(logoBtn);
   });
 });

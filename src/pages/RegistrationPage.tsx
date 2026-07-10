@@ -420,9 +420,13 @@ export default function RegistrationPage() {
       <div className="w-full max-w-2xl">
         {/* Logo / Brand */}
         <div className="mb-8 text-center">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+          <button
+            onClick={() => navigate("/")}
+            className="w-16 h-16 mx-auto mb-4 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center cursor-pointer hover:bg-accent/20 transition-all active:scale-95"
+            aria-label="Go to home"
+          >
             <span className="text-accent font-heading text-2xl">LL</span>
-          </div>
+          </button>
           <h1 className="font-heading text-3xl text-foreground tracking-wider uppercase">
             Join the Hackathon
           </h1>

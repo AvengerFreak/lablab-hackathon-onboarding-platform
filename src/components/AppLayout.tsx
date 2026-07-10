@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
 import { supabase } from "../lib/supabase";
 import {
@@ -49,6 +49,7 @@ function useLocalStorage<T>(key: string, initial: T): [T, (v: T) => void] {
 export default function AppLayout() {
   const auth = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useLocalStorage(
     "sidebar-collapsed",
@@ -109,7 +110,11 @@ export default function AppLayout() {
   const sidebarContent = (
     <div className="flex flex-col h-full">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 h-16 border-b border-border shrink-0">
+      <button
+        onClick={() => navigate("/")}
+        className="flex items-center gap-3 px-4 h-16 border-b border-border shrink-0 w-full hover:bg-muted/50 transition-colors duration-150 cursor-pointer"
+        aria-label="Go to home"
+      >
         <div className="w-8 h-8 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center shrink-0">
           <span className="text-accent font-heading text-xs">LL</span>
         </div>
@@ -118,7 +123,7 @@ export default function AppLayout() {
             LabLab
           </span>
         )}
-      </div>
+      </button>
 
       {/* Navigation */}
       <nav aria-label="Main navigation" className="flex-1 overflow-y-auto py-4 px-3">
@@ -222,14 +227,18 @@ export default function AppLayout() {
             <Menu className="w-5 h-5" aria-hidden="true" />
           </button>
 
-          <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate("/")}
+            className="flex items-center gap-3 hover:bg-muted/50 transition-colors duration-150 cursor-pointer"
+            aria-label="Go to home"
+          >
             <div className="w-7 h-7 rounded-lg bg-accent/10 border border-accent/20 flex items-center justify-center">
               <span className="text-accent font-heading text-[10px]">LL</span>
             </div>
             <span className="font-heading text-xs tracking-wider text-foreground/60 uppercase">
               LabLab
             </span>
-          </div>
+          </button>
 
           <button
             onClick={handleSignOut}

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 
 /* ── Current step labels (must match STEPS in WizardPlaceholder) ── */
 const EXPECTED_STEP_LABELS = [
@@ -473,5 +474,106 @@ describe("WizardPlaceholder — progress indicator", () => {
     const list = await screen.findByRole("list", { name: /setup checklist/i });
     const items = list.querySelectorAll("li");
     expect(items).toHaveLength(6);
+  });
+});
+
+describe("WizardPlaceholder — Clickable Team Card and Onboarding Completed Details", () => {
+  it("clicking the team card opens the team details panel when checklist is not finished", async () => {
+    const user = userEvent.setup();
+    await setupDefaultMocks(undefined, {
+      id: "team-1",
+      name: "My Awesome Team",
+      created_by: "p-2", // participant is p-1, so they are teammate
+      mentor_name: "Mentor Joe",
+    });
+    renderWizard(Wizard);
+
+    // Click the team card (by name or card text)
+    const teamCard = await screen.findByText("My Awesome Team");
+    await user.click(teamCard);
+
+    // It should show team details panel
+    expect(screen.getByRole("heading", { name: /team details/i })).toBeInTheDocument();
+    // Since checklist is not finished (allDone is false), it should show team name and mentor
+    expect(screen.getByText("My Awesome Team")).toBeInTheDocument();
+    expect(screen.getByText("Mentor Joe")).toBeInTheDocument();
+    // Since user is not team lead (created_by is p-2), should show leave team button
+    expect(screen.getByRole("button", { name: /leave team/i })).toBeInTheDocument();
+  });
+
+  it("when checklist is finished and user is Team Lead, team details shows only team lead, teammates, and submit button", async () => {
+    const user = userEvent.setup();
+    const participant = makeBaseParticipant({
+      id: "p-lead", // user is lead
+      steps_completed: {
+        amd: true,
+        fireworks: true,
+        natively_ai: true,
+        lablab_discord: true,
+        discord: true,
+        github: true,
+      },
+    });
+    await setupDefaultMocks(participant, {
+      id: "team-1",
+      name: "My Awesome Team",
+      created_by: "p-lead",
+      mentor_name: "Mentor Joe",
+    });
+    renderWizard(Wizard);
+
+    // Since allDone is true, it displays the completion banner/UI. Let's click "View Team Details" button.
+    const viewDetailsBtn = await screen.findByRole("button", { name: /view team details/i });
+    await user.click(viewDetailsBtn);
+
+    // It should show team details panel
+    expect(screen.getByRole("heading", { name: /team details/i })).toBeInTheDocument();
+
+    // Since allDone is true, it should ONLY show lead, members, and action button.
+    // It should NOT show the team name
+    expect(screen.queryByText("My Awesome Team")).not.toBeInTheDocument();
+    // It should NOT show the mentor section
+    expect(screen.queryByText("Mentor Joe")).not.toBeInTheDocument();
+    expect(screen.queryByText("Assigned Mentor")).not.toBeInTheDocument();
+
+    // It should show the Team Lead section
+    expect(screen.getByText("Team Lead")).toBeInTheDocument();
+    // It should show the Submit Project button
+    expect(screen.getByRole("button", { name: /submit project/i })).toBeInTheDocument();
+  });
+
+  it("when checklist is finished and user is not Team Lead, team details shows only team lead, teammates, and leave team button", async () => {
+    const user = userEvent.setup();
+    const participant = makeBaseParticipant({
+      id: "p-member", // user is not lead
+      steps_completed: {
+        amd: true,
+        fireworks: true,
+        natively_ai: true,
+        lablab_discord: true,
+        discord: true,
+        github: true,
+      },
+    });
+    await setupDefaultMocks(participant, {
+      id: "team-1",
+      name: "My Awesome Team",
+      created_by: "p-lead",
+      mentor_name: "Mentor Joe",
+    });
+    renderWizard(Wizard);
+
+    // Click "View Team Details"
+    const viewDetailsBtn = await screen.findByRole("button", { name: /view team details/i });
+    await user.click(viewDetailsBtn);
+
+    // Should show Team Lead section
+    expect(screen.getByText("Team Lead")).toBeInTheDocument();
+    // Should NOT show the team name or mentor
+    expect(screen.queryByText("My Awesome Team")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mentor Joe")).not.toBeInTheDocument();
+
+    // Should show Leave Team button
+    expect(screen.getByRole("button", { name: /leave team/i })).toBeInTheDocument();
   });
 });

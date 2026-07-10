@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import Auth from "./components/Auth";
 import AppLayout from "./components/AppLayout";
@@ -49,12 +49,17 @@ function ProtectedRoute({
 }
 
 function NoAccess({ userEmail }: { userEmail?: string }) {
+  const navigate = useNavigate();
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="max-w-sm text-center">
-        <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+        <button
+          onClick={() => navigate("/")}
+          className="w-16 h-16 mx-auto mb-4 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center cursor-pointer hover:bg-accent/20 transition-all active:scale-95"
+          aria-label="Go to home"
+        >
           <span className="text-accent font-heading text-2xl">LL</span>
-        </div>
+        </button>
         <h1 className="font-heading text-2xl text-foreground mb-2">Signed In</h1>
         <p className="text-foreground/60 mb-2">
           Your account <strong className="text-foreground">{userEmail}</strong> has been verified,
