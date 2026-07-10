@@ -8,6 +8,7 @@ import HackathonsPlaceholder from "./pages/HackathonsPlaceholder";
 import RegistrationPage from "./pages/RegistrationPage";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase";
+import ChatWidget from "./components/ChatWidget";
 
 function ProtectedRoute({
   children,
@@ -84,8 +85,9 @@ export default function App() {
   const auth = useAuth();
 
   return (
-    <Routes>
-      {/* Public route — sign-in */}
+    <>
+      <Routes>
+        {/* Public route — sign-in */}
       <Route
         path="/"
         element={
@@ -154,5 +156,7 @@ export default function App() {
       {/* Catch-all */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    <ChatWidget />
+    </>
   );
 }
