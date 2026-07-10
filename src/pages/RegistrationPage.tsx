@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
+import { getLinkedAccountUsernames } from "../lib/linkedAccounts";
 import type { Tables } from "../lib/database.types";
 import {
   Loader2,
@@ -16,6 +17,7 @@ import {
   AlertCircle,
   LogOut,
 } from "lucide-react";
+import { SiGithub, SiDiscord } from "react-icons/si";
 
 /* ── Types ─────────────────────────────────────────── */
 
@@ -24,7 +26,7 @@ interface HackathonWithTeams extends Tables<"hackathons"> {
   teamCount: number;
 }
 
-type RegistrationStep = "role" | "hackathon" | "team" | "confirming" | "done";
+type RegistrationStep = "link" | "role" | "hackathon" | "team" | "confirming" | "done";
 
 /* ── Helpers ────────────────────────────────────────── */
 
@@ -43,12 +45,13 @@ export default function RegistrationPage() {
   const auth = useAuth();
   const navigate = useNavigate();
 
-  const [step, setStep] = useState<RegistrationStep>(
-    auth.role === "unknown" ? "role" : "hackathon"
-  );
+  const [step, setStep] = useState<RegistrationStep>("role");
   const [chosenRole, setChosenRole] = useState<"participant" | "organizer">(
     auth.role === "organizer" ? "organizer" : "participant"
   );
+  const [githubUsername, setGithubUsername] = useState("");
+  const [discordUsername, setDiscordUsername] = useState("");
+  const [linkingAccounts, setLinkingAccounts] = useState(false);
   const [hackathons, setHackathons] = useState<HackathonWithTeams[]>([]);
   const [loadingHackathons, setLoadingHackathons] = useState(true);
   const [selectedHackathon, setSelectedHackathon] =
@@ -69,6 +72,25 @@ export default function RegistrationPage() {
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [confirmingUnregister, setConfirmingUnregister] = useState(false);
   const [confirmingLeaveTeam, setConfirmingLeaveTeam] = useState(false);
+
+  // Initialize linked accounts and starting step from auth state
+  useEffect(() => {
+    if (auth.status !== "authenticated") return;
+
+    const { githubUsername: gh, discordUsername: dc } =
+      getLinkedAccountUsernames(auth.user);
+
+    if (gh) setGithubUsername(gh);
+    if (dc) setDiscordUsername(dc);
+
+    if (!gh || !dc) {
+      setStep("link");
+    } else if (auth.role === "unknown") {
+      setStep("role");
+    } else {
+      setStep("hackathon");
+    }
+  }, [auth]);
 
   // Fetch hackathons with teams
   useEffect(() => {
@@ -137,6 +159,38 @@ export default function RegistrationPage() {
     }
     fetchExisting();
   }, []);
+
+  /* ── Link Accounts ────────────────────────────────── */
+
+  const handleLinkAccounts = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!githubUsername.trim() || !discordUsername.trim()) {
+        setError("Please enter both GitHub and Discord usernames.");
+        return;
+      }
+
+      setLinkingAccounts(true);
+      setError(null);
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          github_username: githubUsername.trim(),
+          discord_username: discordUsername.trim(),
+        },
+      });
+
+      if (updateError) {
+        setError(updateError.message);
+        setLinkingAccounts(false);
+        return;
+      }
+
+      setLinkingAccounts(false);
+      setStep(auth.role === "unknown" ? "role" : "hackathon");
+    },
+    [githubUsername, discordUsername, auth.role]
+  );
 
   /* ── Role Selection ───────────────────────────────── */
 
@@ -337,9 +391,9 @@ export default function RegistrationPage() {
           return;
         }
 
-        // Get GitHub and Discord usernames from user metadata (set during account creation)
-        const githubUsername = session.user.user_metadata?.github_username || null;
-        const discordUsername = session.user.user_metadata?.discord_username || null;
+        // Get GitHub and Discord usernames from linked account state
+        const ghUsername = githubUsername.trim() || null;
+        const dcUsername = discordUsername.trim() || null;
 
         const { error: participantError } = await supabase
           .from("participants")
@@ -350,8 +404,8 @@ export default function RegistrationPage() {
               name: email.split("@")[0], // Use email prefix as name
               hackathon_id: selectedHackathon.id,
               team_id: selectedTeam.id,
-              github_username: githubUsername,
-              discord_username: discordUsername,
+              github_username: ghUsername,
+              discord_username: dcUsername,
             },
             { onConflict: "auth_user_id" }
           );
@@ -367,7 +421,7 @@ export default function RegistrationPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [selectedHackathon, selectedTeam, chosenRole]);
+  }, [selectedHackathon, selectedTeam, chosenRole, githubUsername, discordUsername]);
 
   /* ── After success, redirect ──────────────────────── */
 
@@ -443,6 +497,79 @@ export default function RegistrationPage() {
           >
             <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
             {error}
+          </div>
+        )}
+
+        {/* ─── Step: Link Accounts ─────────────────── */}
+        {step === "link" && (
+          <div className="bg-muted border border-border rounded-2xl p-6">
+            <h2 className="font-heading text-base text-foreground tracking-wider uppercase mb-2 text-center">
+              Link Your Accounts
+            </h2>
+            <p className="text-foreground/60 text-sm text-center mb-6">
+              Connect your GitHub and Discord accounts to participate in hackathons
+            </p>
+
+            <form onSubmit={handleLinkAccounts} className="space-y-4">
+              <div>
+                <label htmlFor="reg-link-github" className="sr-only">
+                  GitHub Username
+                </label>
+                <div className="relative">
+                  <SiGithub
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="reg-link-github"
+                    type="text"
+                    value={githubUsername}
+                    onChange={(e) => setGithubUsername(e.target.value)}
+                    placeholder="GitHub username"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="reg-link-discord" className="sr-only">
+                  Discord Username
+                </label>
+                <div className="relative">
+                  <SiDiscord
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
+                    aria-hidden="true"
+                  />
+                  <input
+                    id="reg-link-discord"
+                    type="text"
+                    value={discordUsername}
+                    onChange={(e) => setDiscordUsername(e.target.value)}
+                    placeholder="Discord username"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={
+                  linkingAccounts ||
+                  !githubUsername.trim() ||
+                  !discordUsername.trim()
+                }
+                className="w-full py-3 bg-accent text-white font-semibold rounded-xl hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+              >
+                {linkingAccounts ? (
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Check className="w-4 h-4" aria-hidden="true" />
+                )}
+                Link Accounts & Continue
+              </button>
+            </form>
           </div>
         )}
 
@@ -738,19 +865,19 @@ export default function RegistrationPage() {
                   </span>
                 </div>
               )}
-              {chosenRole === "participant" && githubUsername && (
+              {chosenRole === "participant" && githubUsername.trim() && (
                 <div className="flex items-center justify-between py-2 border-b border-border/40">
                   <span className="text-xs text-foreground/50 uppercase tracking-wider">GitHub</span>
                   <span className="text-sm text-foreground font-mono">
-                    {githubUsername}
+                    {githubUsername.trim()}
                   </span>
                 </div>
               )}
-              {chosenRole === "participant" && discordUsername && (
+              {chosenRole === "participant" && discordUsername.trim() && (
                 <div className="flex items-center justify-between py-2 border-b border-border/40">
                   <span className="text-xs text-foreground/50 uppercase tracking-wider">Discord</span>
                   <span className="text-sm text-foreground font-mono">
-                    {discordUsername}
+                    {discordUsername.trim()}
                   </span>
                 </div>
               )}
@@ -770,7 +897,7 @@ export default function RegistrationPage() {
               <button
                 type="button"
                 onClick={() =>
-                  setStep(chosenRole === "organizer" ? "hackathon" : "profile")
+                  setStep(chosenRole === "organizer" ? "hackathon" : "team")
                 }
                 disabled={submitting}
                 className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm text-foreground/70 hover:bg-muted transition-all duration-150 disabled:opacity-50 cursor-pointer"

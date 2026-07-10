@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { APP_NAME, APP_TAGLINE } from "../lib/config";
+import { getLinkedAccountUsernames } from "../lib/linkedAccounts";
 import { Loader2, Users, ShieldCheck, Check } from "lucide-react";
 import { SiGithub, SiDiscord } from "react-icons/si";
 
@@ -22,6 +23,28 @@ export default function Auth() {
   const [githubUsername, setGithubUsername] = useState("");
   const [discordUsername, setDiscordUsername] = useState("");
   const [linkingLoading, setLinkingLoading] = useState(false);
+
+  // After GitHub OAuth redirect, prompt to link accounts if Discord is missing
+  useEffect(() => {
+    async function checkLinkedAccounts() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return;
+
+      const { githubUsername: gh, discordUsername: dc } =
+        getLinkedAccountUsernames(session.user);
+
+      if (gh) setGithubUsername(gh);
+      if (dc) setDiscordUsername(dc);
+
+      if (!gh || !dc) {
+        setView("link_accounts");
+      }
+    }
+
+    checkLinkedAccounts();
+  }, []);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -152,13 +175,10 @@ export default function Auth() {
       return;
     }
 
-    // Update user metadata with GitHub and Discord usernames
     const { error: updateError } = await supabase.auth.updateUser({
       data: {
-        user_metadata: {
-          github_username: githubUsername.trim(),
-          discord_username: discordUsername.trim(),
-        },
+        github_username: githubUsername.trim(),
+        discord_username: discordUsername.trim(),
       },
     });
 

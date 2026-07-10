@@ -10,6 +10,7 @@ const render = (ui: React.ReactElement) => baseRender(<MemoryRouter>{ui}</Memory
 const mockSignInWithPassword = vi.fn();
 const mockSignUp = vi.fn();
 const mockSignInWithOAuth = vi.fn();
+const mockGetSession = vi.fn();
 const mockUpsert = vi.fn();
 
 vi.mock("../../lib/supabase", () => ({
@@ -19,6 +20,7 @@ vi.mock("../../lib/supabase", () => ({
         mockSignInWithPassword(...args),
       signUp: (...args: unknown[]) => mockSignUp(...args),
       signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
+      getSession: (...args: unknown[]) => mockGetSession(...args),
     },
     from: () => ({
       upsert: (...args: unknown[]) => mockUpsert(...args),
@@ -34,6 +36,7 @@ vi.mock("../../lib/config", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
+  mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
 });
 
 describe("Auth", () => {
