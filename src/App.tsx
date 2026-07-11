@@ -6,6 +6,7 @@ import DashboardPlaceholder from "./pages/DashboardPlaceholder";
 import WizardPlaceholder from "./pages/WizardPlaceholder";
 import HackathonsPlaceholder from "./pages/HackathonsPlaceholder";
 import RegistrationPage from "./pages/RegistrationPage";
+import HackathonCreationPage from "./pages/HackathonCreationPage";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import ChatWidget from "./components/ChatWidget";
@@ -72,7 +73,7 @@ function NoAccess({ userEmail }: { userEmail?: string }) {
         </p>
         <button
           onClick={() => supabase.auth.signOut()}
-          className="px-6 py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 transition-all duration-150 active:scale-[0.98] cursor-pointer"
+          className="px-6 py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 transition-all duration-150 active:scale-[098] cursor-pointer"
         >
           Sign Out
         </button>
@@ -87,7 +88,7 @@ export default function App() {
   return (
     <>
       <Routes>
-        {/* Public route — sign-in */}
+        {/* Public route  sign-in */}
       <Route
         path="/"
         element={
@@ -113,7 +114,7 @@ export default function App() {
         }
       />
 
-      {/* Registration route — accessible to any authenticated user */}
+      {/* Registration route  accessible to any authenticated user */}
       <Route path="/register" element={<RegistrationPage />} />
 
       {/* Authenticated routes wrapped in AppLayout */}
@@ -138,6 +139,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRole="organizer">
               <HackathonsPlaceholder />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/hackathons/create"
+          element={
+            <ProtectedRoute allowedRole="organizer">
+              <HackathonCreationPage />
             </ProtectedRoute>
           }
         />

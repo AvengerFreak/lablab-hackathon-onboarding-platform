@@ -63,6 +63,22 @@ export type Database = {
           slug: string
           start_date: string | null
           welcome_message: string | null
+          // New fields for enhanced hackathon creation
+          program: string | null
+          challenge_description: string | null
+          rules: Json | null
+          checklist_runbook: Json | null
+          partners: Json | null
+          prizes: Json | null
+          community_config: Json | null
+          social_config: Json | null
+          submission_rules: Json | null
+          judging_criteria: Json | null
+          event_schedule: Json | null
+          guest_speakers: Json | null
+          year: number | null
+          repo_visibility: "private" | "public" | null
+          credit_allocations: Json | null
         }
         Insert: {
           created_at?: string
@@ -74,6 +90,22 @@ export type Database = {
           slug: string
           start_date?: string | null
           welcome_message?: string | null
+          // New fields
+          program?: string | null
+          challenge_description?: string | null
+          rules?: Json | null
+          checklist_runbook?: Json | null
+          partners?: Json | null
+          prizes?: Json | null
+          community_config?: Json | null
+          social_config?: Json | null
+          submission_rules?: Json | null
+          judging_criteria?: Json | null
+          event_schedule?: Json | null
+          guest_speakers?: Json | null
+          year?: number | null
+          repo_visibility?: "private" | "public" | null
+          credit_allocations?: Json | null
         }
         Update: {
           created_at?: string
@@ -85,8 +117,246 @@ export type Database = {
           slug?: string
           start_date?: string | null
           welcome_message?: string | null
+          // New fields
+          program?: string | null
+          challenge_description?: string | null
+          rules?: Json | null
+          checklist_runbook?: Json | null
+          partners?: Json | null
+          prizes?: Json | null
+          community_config?: Json | null
+          social_config?: Json | null
+          submission_rules?: Json | null
+          judging_criteria?: Json | null
+          event_schedule?: Json | null
+          guest_speakers?: Json | null
+          year?: number | null
+          repo_visibility?: "private" | "public" | null
+          credit_allocations?: Json | null
         }
         Relationships: []
+      }
+      hackathon_checklist_items: {
+        Row: {
+          id: string
+          hackathon_id: string
+          step_name: string
+          description: string
+          is_reusable: boolean
+          is_required: boolean
+          order_index: number
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          hackathon_id: string
+          step_name: string
+          description: string
+          is_reusable?: boolean
+          is_required?: boolean
+          order_index?: number
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          hackathon_id?: string
+          step_name?: string
+          description?: string
+          is_reusable?: boolean
+          is_required?: boolean
+          order_index?: number
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hackathon_checklist_items_hackathon_id_fkey"
+            columns: ["hackathon_id"]
+            isOneToOne: false
+            referencedRelation: "hackathons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      partner_integrations: {
+        Row: {
+          id: string
+          hackathon_id: string
+          partner_name: string
+          integration_type: string
+          endpoint_url: string | null
+          api_key: string | null
+          credit_amount: number | null
+          is_active: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          hackathon_id: string
+          partner_name: string
+          integration_type: string
+          endpoint_url?: string | null
+          api_key?: string | null
+          credit_amount?: number | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          hackathon_id?: string
+          partner_name?: string
+          integration_type?: string
+          endpoint_url?: string | null
+          api_key?: string | null
+          credit_amount?: number | null
+          is_active?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "partner_integrations_hackathon_id_fkey"
+            columns: ["hackathon_id"]
+            isOneToOne: false
+            referencedRelation: "hackathons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      participant_credits: {
+        Row: {
+          id: string
+          participant_id: string
+          hackathon_id: string
+          partner_name: string
+          credit_amount: number
+          allocated_at: string
+          used_at: string | null
+          transaction_id: string | null
+        }
+        Insert: {
+          id?: string
+          participant_id: string
+          hackathon_id: string
+          partner_name: string
+          credit_amount: number
+          allocated_at?: string
+          used_at?: string | null
+          transaction_id?: string | null
+        }
+        Update: {
+          id?: string
+          participant_id?: string
+          hackathon_id?: string
+          partner_name?: string
+          credit_amount?: number
+          allocated_at?: string
+          used_at?: string | null
+          transaction_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_credits_hackathon_id_fkey"
+            columns: ["hackathon_id"]
+            isOneToOne: false
+            referencedRelation: "hackathons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participant_credits_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      event_meetings: {
+        Row: {
+          id: string
+          hackathon_id: string
+          title: string
+          description: string | null
+          start_time: string
+          end_time: string | null
+          meeting_link: string | null
+          google_calendar_event_id: string | null
+          is_required: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          hackathon_id: string
+          title: string
+          description?: string | null
+          start_time: string
+          end_time?: string | null
+          meeting_link?: string | null
+          google_calendar_event_id?: string | null
+          is_required?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          hackathon_id?: string
+          title?: string
+          description?: string | null
+          start_time?: string
+          end_time?: string | null
+          meeting_link?: string | null
+          google_calendar_event_id?: string | null
+          is_required?: boolean
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "event_meetings_hackathon_id_fkey"
+            columns: ["hackathon_id"]
+            isOneToOne: false
+            referencedRelation: "hackathons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      participant_meeting_invites: {
+        Row: {
+          id: string
+          participant_id: string
+          meeting_id: string
+          google_calendar_invite_sent: boolean
+          google_calendar_invite_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          participant_id: string
+          meeting_id: string
+          google_calendar_invite_sent?: boolean
+          google_calendar_invite_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          participant_id?: string
+          meeting_id?: string
+          google_calendar_invite_sent?: boolean
+          google_calendar_invite_id?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participant_meeting_invites_meeting_id_fkey"
+            columns: ["meeting_id"]
+            isOneToOne: false
+            referencedRelation: "event_meetings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "participant_meeting_invites_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       knowledge_base: {
         Row: {
@@ -169,6 +439,8 @@ export type Database = {
           email: string
           id: string
           name: string | null
+          google_calendar_connected: boolean
+          google_calendar_token: Json | null
         }
         Insert: {
           auth_user_id?: string | null
@@ -176,6 +448,8 @@ export type Database = {
           email: string
           id?: string
           name?: string | null
+          google_calendar_connected?: boolean
+          google_calendar_token?: Json | null
         }
         Update: {
           auth_user_id?: string | null
@@ -183,6 +457,8 @@ export type Database = {
           email?: string
           id?: string
           name?: string | null
+          google_calendar_connected?: boolean
+          google_calendar_token?: Json | null
         }
         Relationships: []
       }
@@ -198,6 +474,8 @@ export type Database = {
           name: string
           steps_completed: Json
           team_id: string | null
+          google_calendar_email: string | null
+          google_calendar_invite_sent: boolean
         }
         Insert: {
           auth_user_id?: string | null
@@ -210,6 +488,8 @@ export type Database = {
           name: string
           steps_completed?: Json
           team_id?: string | null
+          google_calendar_email?: string | null
+          google_calendar_invite_sent?: boolean
         }
         Update: {
           auth_user_id?: string | null
@@ -222,6 +502,8 @@ export type Database = {
           name?: string
           steps_completed?: Json
           team_id?: string | null
+          google_calendar_email?: string | null
+          google_calendar_invite_sent?: boolean
         }
         Relationships: [
           {
@@ -393,7 +675,7 @@ export type Enums<
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
