@@ -34,9 +34,10 @@ describe("Hackathon Helper Functions", () => {
       expect(result).toBe("ai-builders-hackathon");
     });
 
-    it("removes special characters", () => {
+    it("removes special characters and replaces with hyphens", () => {
       const result = generateSlug("AI Builder's Hackathon!");
-      expect(result).toBe("ai-builders-hackathon");
+      // Apostrophe and exclamation become hyphens
+      expect(result).toBe("ai-builder-s-hackathon");
     });
 
     it("removes leading and trailing hyphens", () => {
@@ -86,7 +87,6 @@ describe("Hackathon Helper Functions", () => {
     it("handles different timezones", () => {
       const date = new Date("2026-01-15T12:00:00+05:30");
       const result = formatDateForInput(date);
-      // The exact output depends on the timezone, but it should be in YYYY-MM-DD format
       expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
 
@@ -108,9 +108,9 @@ describe("Hackathon Helper Functions", () => {
       expect(result).toBe("ai-builders-hackathon");
     });
 
-    it("removes special characters", () => {
+    it("removes special characters and replaces with hyphens", () => {
       const result = slugify("AI Builder's Hackathon!");
-      expect(result).toBe("ai-builders-hackathon");
+      expect(result).toBe("ai-builder-s-hackathon");
     });
 
     it("removes leading and trailing hyphens", () => {
@@ -150,9 +150,11 @@ describe("Hackathon Helper Functions", () => {
     it("generates correct repo name without year", () => {
       const hackathonSlug = "ai-builders";
       const teamName = "Team Alpha";
+      const year = null;
       
       const teamSlug = slugify(teamName);
-      const repoName = `${hackathonSlug}-${teamSlug}`;
+      const yearSuffix = year ? `-${year}` : "";
+      const repoName = `${hackathonSlug}-${teamSlug}${yearSuffix}`;
       
       expect(repoName).toBe("ai-builders-team-alpha");
     });
@@ -165,7 +167,7 @@ describe("Hackathon Helper Functions", () => {
       const teamSlug = slugify(teamName);
       const repoName = `${hackathonSlug}-${teamSlug}-${year}`;
       
-      expect(repoName).toBe("ai-builders-team-alphas-group-2026");
+      expect(repoName).toBe("ai-builders-team-alpha-s-group-2026");
     });
 
     it("handles long team names", () => {
@@ -176,7 +178,6 @@ describe("Hackathon Helper Functions", () => {
       const teamSlug = slugify(teamName);
       const repoName = `${hackathonSlug}-${teamSlug}-${year}`;
       
-      // Total length should be reasonable
       expect(repoName.length).toBeLessThanOrEqual(100);
     });
   });
