@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render as baseRender, screen } from "@testing-library/react";
+import { render as baseRender, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import userEvent from "@testing-library/user-event";
 import { APP_NAME, APP_TAGLINE } from "../../lib/config";
@@ -11,6 +11,7 @@ const mockSignInWithPassword = vi.fn();
 const mockSignUp = vi.fn();
 const mockSignInWithOAuth = vi.fn();
 const mockGetSession = vi.fn();
+const mockUpdateUser = vi.fn();
 const mockUpsert = vi.fn();
 
 vi.mock("../../lib/supabase", () => ({
@@ -21,6 +22,7 @@ vi.mock("../../lib/supabase", () => ({
       signUp: (...args: unknown[]) => mockSignUp(...args),
       signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
       getSession: (...args: unknown[]) => mockGetSession(...args),
+      updateUser: (...args: unknown[]) => mockUpdateUser(...args),
     },
     from: () => ({
       upsert: (...args: unknown[]) => mockUpsert(...args),
@@ -32,6 +34,10 @@ vi.mock("../../lib/config", () => ({
   APP_NAME: "LabLab Onboarding",
   APP_TAGLINE: "Get ready to build",
 }));
+
+// Mock window.location
+delete (window as Partial<Window>).location;
+(window as Partial<Window>).location = { origin: "http://localhost:3000" } as Location;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -342,5 +348,93 @@ describe("Auth", () => {
     const logoBtn = screen.getByRole("button", { name: /go to home/i });
     expect(logoBtn).toBeInTheDocument();
     await user.click(logoBtn);
+  });
+
+  // New tests for account linking workflow
+  describe("Account Linking Workflow", () => {
+    it("shows link accounts view when user has no linked accounts after GitHub OAuth", async () => {
+      const user = userEvent.setup();
+      mockGetSession.mockResolvedValue({
+        data: {
+          session: {
+            user: {
+              id: "u1",
+              email: "test@example.com",
+              user_metadata: {},
+              identities: [
+                {
+                  provider: "github",
+                  identity_data: { user_name: "github-user" },
+                },
+              ],
+            },
+          },
+        },
+        error: null,
+      });
+
+      const Auth = (await import("../Auth")).default;
+      render(<Auth />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Link Your Accounts")).toBeInTheDocument();
+      });
+    });
+
+    it("shows Discord input only when GitHub is already linked", async () => {
+      const user = userEvent.setup();
+      mockGetSession.mockResolvedValue({
+        data: {
+          session: {
+            user: {
+              id: "u1",
+              email: "test@example.com",
+              user_metadata: {},
+              identities: [
+                {
+                  provider: "github",
+                  identity_data: { user_name: "github-user" },
+                },
+              ],
+            },
+          },
+        },
+        error: null,
+      });
+
+      const Auth = (await import("../Auth")).default;
+      render(<Auth />);
+
+      await waitFor(() => {
+        // Should show Discord input but not GitHub input
+        expect(screen.getByPlaceholderText("Discord username")).toBeInTheDocument();
+        expect(screen.queryByPlaceholderText("GitHub username")).not.toBeInTheDocument();
+      });
+    });
+
+    it("shows both GitHub and Discord inputs when neither is linked", async () => {
+      const user = userEvent.setup();
+      mockGetSession.mockResolvedValue({
+        data: {
+          session: {
+            user: {
+              id: "u1",
+              email: "test@example.com",
+              user_metadata: {},
+              identities: [],
+            },
+          },
+        },
+        error: null,
+      });
+
+      const Auth = (await import("../Auth")).default;
+      render(<Auth />);
+
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText("GitHub username")).toBeInTheDocument();
+        expect(screen.getByPlaceholderText("Discord username")).toBeInTheDocument();
+      });
+    });
   });
 });

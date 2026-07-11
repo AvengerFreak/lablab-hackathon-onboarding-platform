@@ -44,3 +44,33 @@ export function hasLinkedAccounts(user: User): boolean {
   const { githubUsername, discordUsername } = getLinkedAccountUsernames(user);
   return !!githubUsername && !!discordUsername;
 }
+
+/**
+ * Check if user has linked GitHub account (either via OAuth or username)
+ */
+export function hasLinkedGitHub(user: User): boolean {
+  const { githubUsername } = getLinkedAccountUsernames(user);
+  return !!githubUsername;
+}
+
+/**
+ * Check if user has linked Discord account (via username)
+ */
+export function hasLinkedDiscord(user: User): boolean {
+  const { discordUsername } = getLinkedAccountUsernames(user);
+  return !!discordUsername;
+}
+
+/**
+ * Check if user needs to link Discord (has GitHub but no Discord)
+ */
+export function needsDiscordLink(user: User): boolean {
+  return hasLinkedGitHub(user) && !hasLinkedDiscord(user);
+}
+
+/**
+ * Check if user needs to link both accounts
+ */
+export function needsBothAccountsLink(user: User): boolean {
+  return !hasLinkedGitHub(user) && !hasLinkedDiscord(user);
+}

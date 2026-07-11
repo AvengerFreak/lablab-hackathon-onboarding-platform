@@ -38,25 +38,35 @@ const VIEW_CHANNEL = 0x00000400;
 const SEND_MESSAGES = 0x00000800;
 const READ_MESSAGE_HISTORY = 0x00010000;
 const CONNECT = 0x00100000;
+const MANAGE_CHANNELS = 0x00100000;
+const MANAGE_ROLES = 0x20000000;
+
+// Member permissions (for regular team members)
 const MEMBER_CHANNEL_PERMS =
   VIEW_CHANNEL |
   SEND_MESSAGES |
   READ_MESSAGE_HISTORY |
   CONNECT |
-  0x00001000 |
-  0x00002000 |
-  0x00004000 |
-  0x00008000 |
-  0x00020000 |
-  0x00040000 |
-  0x00080000 |
-  0x00200000 |
-  0x00400000 |
-  0x00800000 |
-  0x01000000 |
-  0x02000000;
+  0x00001000 | // ADD_REACTIONS
+  0x00002000 | // SPEAK
+  0x00004000 | // STREAM
+  0x00008000 | // EMBED_LINKS
+  0x00020000 | // ATTACH_FILES
+  0x00040000 | // READ_MESSAGE_HISTORY
+  0x00080000 | // MENTION_EVERYONE
+  0x00200000 | // USE_EXTERNAL_EMOJIS
+  0x00400000 | // USE_EXTERNAL_STICKERS
+  0x00800000 | // USE_APPLICATION_COMMANDS
+  0x01000000 | // REQUEST_TO_SPEAK
+  0x02000000;  // MANAGE_MESSAGES
 
-/* ── Rate limiter ─────────────────────────────────── */
+// Admin permissions (for team lead - includes all member perms + admin)
+const ADMIN_CHANNEL_PERMS =
+  MEMBER_CHANNEL_PERMS |
+  MANAGE_CHANNELS |
+  MANAGE_ROLES;
+
+/* Rate limiter */
 
 const rateLimitStore = new Map<string, number[]>();
 
@@ -80,7 +90,7 @@ function checkRateLimit(hackathonId: string): boolean {
   return true;
 }
 
-/* ── Helpers ───────────────────────────────────────── */
+/* Helpers */
 
 function slugify(name: string): string {
   return name
@@ -282,8 +292,11 @@ async function findDiscordMemberId(
 async function grantDiscordChannelAccess(
   channelId: string,
   userId: string,
-  botToken: string
+  botToken: string,
+  isAdmin = false
 ): Promise<string | null> {
+  const permissions = isAdmin ? ADMIN_CHANNEL_PERMS : MEMBER_CHANNEL_PERMS;
+  
   const response = await fetch(
     `https://discord.com/api/v10/channels/${channelId}/permissions/${userId}`,
     {
@@ -294,7 +307,7 @@ async function grantDiscordChannelAccess(
         "User-Agent": "hackathon-onboarding",
       },
       body: JSON.stringify({
-        allow: String(MEMBER_CHANNEL_PERMS),
+        allow: String(permissions),
         type: 1,
       }),
     }
@@ -312,7 +325,8 @@ async function syncDiscordMembers(
   channelId: string,
   guildId: string,
   participants: Participant[],
-  botToken: string
+  botToken: string,
+  teamLeadDiscordUsername: string | null
 ): Promise<{ added: string[]; errors: string[] }> {
   const added: string[] = [];
   const errors: string[] = [];
@@ -329,7 +343,11 @@ async function syncDiscordMembers(
       continue;
     }
 
-    const err = await grantDiscordChannelAccess(channelId, userId, botToken);
+    // Check if this is the team lead
+    const isTeamLead = teamLeadDiscordUsername && 
+      discordUsername.toLowerCase() === teamLeadDiscordUsername.toLowerCase();
+
+    const err = await grantDiscordChannelAccess(channelId, userId, botToken, isTeamLead);
     if (err) {
       errors.push(`${discordUsername}: ${err}`);
     } else {
@@ -395,7 +413,7 @@ async function createDiscordChannel(
   }
 }
 
-/* ── Handler ───────────────────────────────────────── */
+/* Handler */
 
 Deno.serve(async (req: Request) => {
   const corsHeaders = {
@@ -415,7 +433,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  /* ── Auth ────────────────────────────────────── */
+  /* Auth */
 
   const authHeader = req.headers.get("Authorization")?.replace("Bearer ", "");
   if (!authHeader) {
@@ -437,7 +455,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  /* ── Parse body ───────────────────────────────── */
+  /* Parse body */
 
   let body: CreateInfraRequest;
   try {
@@ -456,7 +474,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  /* ── Fetch team ───────────────────────────────── */
+  /* Fetch team */
 
   const { data: team, error: teamErr } = await sb
     .from("teams")
@@ -473,7 +491,7 @@ Deno.serve(async (req: Request) => {
 
   const t = team as unknown as Team;
 
-  /* ── Fetch participants ───────────────────────── */
+  /* Fetch participants */
 
   const { data: participants, error: partErr } = await sb
     .from("participants")
@@ -500,8 +518,9 @@ Deno.serve(async (req: Request) => {
     ? parts.find((p) => p.id === t.created_by) ?? parts[0]
     : parts[0];
   const teamLeadGithub = teamLead.github_username?.trim() || null;
+  const teamLeadDiscord = teamLead.discord_username?.trim() || null;
 
-  /* ── Fetch hackathon ──────────────────────────── */
+  /* Fetch hackathon */
 
   const { data: hack, error: hackErr } = await sb
     .from("hackathons")
@@ -518,7 +537,7 @@ Deno.serve(async (req: Request) => {
 
   const h = hack as unknown as Hackathon;
 
-  /* ── Rate limit ───────────────────────────────── */
+  /* Rate limit */
 
   if (!checkRateLimit(t.hackathon_id)) {
     return new Response(JSON.stringify({ error: "Rate limit (5/min per hackathon)" }), {
@@ -527,7 +546,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  /* ── Resolve GitHub PAT ───────────────────────── */
+  /* Resolve GitHub PAT */
 
   const teamLeadPat = body.github_pat?.trim() || null;
   const envGithubPat = Deno.env.get("GITHUB_PAT") || null;
@@ -578,7 +597,7 @@ Deno.serve(async (req: Request) => {
   const needsGithub = !githubUrl;
   const needsDiscord = !discordId;
 
-  /* ── Create GitHub repo if missing ────────────── */
+  /* Create GitHub repo if missing */
 
   if (needsGithub) {
     if (githubPat) {
@@ -599,7 +618,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  /* ── Create Discord channel if missing ────────── */
+  /* Create Discord channel if missing */
 
   if (needsDiscord) {
     if (discordToken && discordGuild) {
@@ -619,7 +638,7 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  /* ── Sync members to GitHub repo ──────────────── */
+  /* Sync members to GitHub repo */
 
   if (githubUrl && githubPat) {
     const sync = await addGitHubCollaborators(
@@ -635,14 +654,15 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  /* ── Sync members to Discord channel ──────────── */
+  /* Sync members to Discord channel */
 
   if (discordId && discordToken && discordGuild) {
     const sync = await syncDiscordMembers(
       discordId,
       discordGuild,
       parts,
-      discordToken
+      discordToken,
+      teamLeadDiscord
     );
     discordAdded = sync.added;
     discordSyncErrors = sync.errors;
@@ -655,7 +675,7 @@ Deno.serve(async (req: Request) => {
     discordErr = "DISCORD_GUILD_ID not configured";
   }
 
-  /* ── Update team record ───────────────────────── */
+  /* Update team record */
 
   const updates: Record<string, unknown> = {};
   if (githubUrl && githubUrl !== t.github_repo_url) {
@@ -679,7 +699,7 @@ Deno.serve(async (req: Request) => {
     await sb.from("teams").update(updates).eq("id", body.team_id);
   }
 
-  /* ── Audit log ────────────────────────────────── */
+  /* Audit log */
 
   let actorRole = "participant";
   const { data: orgCheck } = await sb
@@ -715,11 +735,12 @@ Deno.serve(async (req: Request) => {
       discord_members_added: discordAdded,
       github_sync_errors: githubSyncErrors,
       discord_sync_errors: discordSyncErrors,
+      team_lead_discord: teamLeadDiscord,
       status,
     },
   });
 
-  /* ── Response ─────────────────────────────────── */
+  /* Response */
 
   const statusCode = bothOk ? 200 : partial ? 207 : 500;
 
@@ -734,6 +755,7 @@ Deno.serve(async (req: Request) => {
       discord_error: discordErr,
       github_collaborators_added: githubAdded,
       discord_members_added: discordAdded,
+      team_lead_discord: teamLeadDiscord,
       status,
     }),
     { status: statusCode, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { getLinkedAccountUsernames } from "../lib/linkedAccounts";
+import { getLinkedAccountUsernames, hasLinkedAccounts } from "../lib/linkedAccounts";
 import type { Tables } from "../lib/database.types";
 import {
   Loader2,
@@ -20,7 +20,7 @@ import {
 import { SiGithub, SiDiscord } from "react-icons/si";
 import TeamLeadGithubPatStep from "../components/TeamLeadGithubPatStep";
 
-/* ── Types ─────────────────────────────────────────── */
+/* Types */
 
 interface HackathonWithTeams extends Tables<"hackathons"> {
   teams: Tables<"teams">[];
@@ -28,7 +28,6 @@ interface HackathonWithTeams extends Tables<"hackathons"> {
 }
 
 type RegistrationStep =
-  | "link"
   | "role"
   | "hackathon"
   | "team"
@@ -36,7 +35,7 @@ type RegistrationStep =
   | "confirming"
   | "done";
 
-/* ── Helpers ────────────────────────────────────────── */
+/* Helpers */
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
@@ -47,7 +46,7 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
-/* ── Main Registration Page ────────────────────────── */
+/* Main Registration Page */
 
 export default function RegistrationPage() {
   const auth = useAuth();
@@ -59,7 +58,6 @@ export default function RegistrationPage() {
   );
   const [githubUsername, setGithubUsername] = useState("");
   const [discordUsername, setDiscordUsername] = useState("");
-  const [linkingAccounts, setLinkingAccounts] = useState(false);
   const [hackathons, setHackathons] = useState<HackathonWithTeams[]>([]);
   const [loadingHackathons, setLoadingHackathons] = useState(true);
   const [selectedHackathon, setSelectedHackathon] =
@@ -83,7 +81,7 @@ export default function RegistrationPage() {
   const [teamWasCreated, setTeamWasCreated] = useState(false);
   const [teamLeadGithubPat, setTeamLeadGithubPat] = useState("");
 
-  // Initialize linked accounts and starting step from auth state
+  // Initialize from auth state
   useEffect(() => {
     if (auth.status !== "authenticated") return;
 
@@ -93,14 +91,19 @@ export default function RegistrationPage() {
     if (gh) setGithubUsername(gh);
     if (dc) setDiscordUsername(dc);
 
-    if (!gh || !dc) {
-      setStep("link");
-    } else if (auth.role === "unknown") {
+    // Check if accounts are linked
+    if (!hasLinkedAccounts(auth.user)) {
+      // Redirect to auth to link accounts
+      navigate("/", { replace: true });
+      return;
+    }
+
+    if (auth.role === "unknown") {
       setStep("role");
     } else {
       setStep("hackathon");
     }
-  }, [auth]);
+  }, [auth, navigate]);
 
   // Fetch hackathons with teams
   useEffect(() => {
@@ -170,39 +173,7 @@ export default function RegistrationPage() {
     fetchExisting();
   }, []);
 
-  /* ── Link Accounts ────────────────────────────────── */
-
-  const handleLinkAccounts = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!githubUsername.trim() || !discordUsername.trim()) {
-        setError("Please enter both GitHub and Discord usernames.");
-        return;
-      }
-
-      setLinkingAccounts(true);
-      setError(null);
-
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: {
-          github_username: githubUsername.trim(),
-          discord_username: discordUsername.trim(),
-        },
-      });
-
-      if (updateError) {
-        setError(updateError.message);
-        setLinkingAccounts(false);
-        return;
-      }
-
-      setLinkingAccounts(false);
-      setStep(auth.role === "unknown" ? "role" : "hackathon");
-    },
-    [githubUsername, discordUsername, auth.role]
-  );
-
-  /* ── Role Selection ───────────────────────────────── */
+  /* Role Selection */
 
   const handleRoleSelect = useCallback((role: "participant" | "organizer") => {
     setChosenRole(role);
@@ -210,7 +181,7 @@ export default function RegistrationPage() {
     setStep("hackathon");
   }, []);
 
-  /* ── Hackathon Selection ──────────────────────────── */
+  /* Hackathon Selection */
 
   const handleHackathonSelect = useCallback(
     (hack: HackathonWithTeams) => {
@@ -231,7 +202,7 @@ export default function RegistrationPage() {
     [chosenRole]
   );
 
-  /* ── Team Selection ───────────────────────────────── */
+  /* Team Selection */
 
   const handleTeamSelect = useCallback((team: Tables<"teams">) => {
     setSelectedTeam(team);
@@ -294,13 +265,13 @@ export default function RegistrationPage() {
     setStep("github_pat");
   }, [newTeamName, selectedHackathon]);
 
-  /* ── Sign Out ─────────────────────────────────────── */
+  /* Sign Out */
 
   const handleSignOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
 
-  /* ── Un-register from Hackathon ──────────────────── */
+  /* Un-register from Hackathon */
 
   const handleUnregister = useCallback(async () => {
     if (!existingRegistration) return;
@@ -323,7 +294,7 @@ export default function RegistrationPage() {
     setSubmitting(false);
   }, [existingRegistration]);
 
-  /* ── Leave Team ──────────────────────────────────── */
+  /* Leave Team */
 
   const handleLeaveTeam = useCallback(async () => {
     if (!existingRegistration) return;
@@ -350,7 +321,7 @@ export default function RegistrationPage() {
     setSubmitting(false);
   }, [existingRegistration]);
 
-  /* ── Submit Registration ──────────────────────────── */
+  /* Submit Registration */
 
   const handleSubmit = useCallback(async () => {
     if (!selectedHackathon) return;
@@ -465,6 +436,28 @@ export default function RegistrationPage() {
           }
         }
 
+        // If joining an existing team (not creating), add user to Discord channel
+        if (!teamWasCreated && selectedTeam.discord_channel_id) {
+          // Add participant to Discord channel
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          if (currentSession?.access_token) {
+            const { error: addError } = await supabase.functions.invoke(
+              "add-participant-to-discord",
+              {
+                body: {
+                  team_id: selectedTeam.id,
+                  participant_id: participantData?.id,
+                  discord_username: dcUsername,
+                },
+                headers: { Authorization: `Bearer ${currentSession.access_token}` },
+              }
+            );
+            if (addError) {
+              console.error("Failed to add participant to Discord channel:", addError);
+            }
+          }
+        }
+
         setTeamLeadGithubPat("");
         setStep("done");
       }
@@ -485,7 +478,7 @@ export default function RegistrationPage() {
     teamLeadGithubPat,
   ]);
 
-  /* ── After success, redirect ──────────────────────── */
+  /* After success, redirect */
 
   useEffect(() => {
     if (step === "done") {
@@ -500,7 +493,7 @@ export default function RegistrationPage() {
     }
   }, [step, chosenRole, navigate]);
 
-  /* ── Loading ──────────────────────────────────────── */
+  /* Loading */
 
   if (auth.status === "loading") {
     return (
@@ -516,7 +509,7 @@ export default function RegistrationPage() {
     return null;
   }
 
-  /* ── Render ───────────────────────────────────────── */
+  /* Render */
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
@@ -562,80 +555,7 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* ─── Step: Link Accounts ─────────────────── */}
-        {step === "link" && (
-          <div className="bg-muted border border-border rounded-2xl p-6">
-            <h2 className="font-heading text-base text-foreground tracking-wider uppercase mb-2 text-center">
-              Link Your Accounts
-            </h2>
-            <p className="text-foreground/60 text-sm text-center mb-6">
-              Connect your GitHub and Discord accounts to participate in hackathons
-            </p>
-
-            <form onSubmit={handleLinkAccounts} className="space-y-4">
-              <div>
-                <label htmlFor="reg-link-github" className="sr-only">
-                  GitHub Username
-                </label>
-                <div className="relative">
-                  <SiGithub
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
-                    aria-hidden="true"
-                  />
-                  <input
-                    id="reg-link-github"
-                    type="text"
-                    value={githubUsername}
-                    onChange={(e) => setGithubUsername(e.target.value)}
-                    placeholder="GitHub username"
-                    required
-                    className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label htmlFor="reg-link-discord" className="sr-only">
-                  Discord Username
-                </label>
-                <div className="relative">
-                  <SiDiscord
-                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
-                    aria-hidden="true"
-                  />
-                  <input
-                    id="reg-link-discord"
-                    type="text"
-                    value={discordUsername}
-                    onChange={(e) => setDiscordUsername(e.target.value)}
-                    placeholder="Discord username"
-                    required
-                    className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={
-                  linkingAccounts ||
-                  !githubUsername.trim() ||
-                  !discordUsername.trim()
-                }
-                className="w-full py-3 bg-accent text-white font-semibold rounded-xl hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
-              >
-                {linkingAccounts ? (
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                ) : (
-                  <Check className="w-4 h-4" aria-hidden="true" />
-                )}
-                Link Accounts & Continue
-              </button>
-            </form>
-          </div>
-        )}
-
-        {/* ─── Step: Choose Role ───────────────────── */}
+        {/* Step: Choose Role */}
         {step === "role" && (
           <div className="space-y-4">
             <p className="text-foreground/60 text-sm text-center mb-6">
@@ -686,7 +606,7 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* ─── Step: Choose Hackathon ──────────────── */}
+        {/* Step: Choose Hackathon */}
         {step === "hackathon" && (
           <div>
             <div className="flex items-center gap-2 mb-6">
@@ -780,7 +700,7 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* ─── Step: Choose Team ───────────────────── */}
+        {/* Step: Choose Team */}
         {step === "team" && selectedHackathon && (
           <div>
             <div className="flex items-center gap-2 mb-6">
@@ -899,7 +819,7 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* ─── Step: Team Lead GitHub PAT ──────────── */}
+        {/* Step: Team Lead GitHub PAT */}
         {step === "github_pat" && selectedTeam && (
           <TeamLeadGithubPatStep
             teamName={selectedTeam.name}
@@ -922,7 +842,7 @@ export default function RegistrationPage() {
         )}
 
 
-        {/* ─── Step: Confirming / Submitting ────────── */}
+        {/* Step: Confirming / Submitting */}
         {step === "confirming" && selectedHackathon && (
           <div className="bg-muted border border-border rounded-2xl p-6">
             <h2 className="font-heading text-base text-foreground tracking-wider uppercase mb-4">
@@ -964,6 +884,22 @@ export default function RegistrationPage() {
                   <span className="text-xs text-foreground/50 uppercase tracking-wider">Discord</span>
                   <span className="text-sm text-foreground font-mono">
                     {discordUsername.trim()}
+                  </span>
+                </div>
+              )}
+              {chosenRole === "participant" && teamWasCreated && (
+                <div className="flex items-center justify-between py-2 border-b border-border/40">
+                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Action</span>
+                  <span className="text-sm text-foreground">
+                    Create team repo & Discord channel
+                  </span>
+                </div>
+              )}
+              {chosenRole === "participant" && !teamWasCreated && selectedTeam?.discord_channel_id && (
+                <div className="flex items-center justify-between py-2 border-b border-border/40">
+                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Action</span>
+                  <span className="text-sm text-foreground">
+                    Add to team Discord channel
                   </span>
                 </div>
               )}
@@ -1018,7 +954,7 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* ─── Step: Done ──────────────────────────── */}
+        {/* Step: Done */}
         {step === "done" && (
           <div className="bg-muted border border-border rounded-2xl p-8 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-accent/15 border border-accent/30 flex items-center justify-center">
@@ -1032,6 +968,16 @@ export default function RegistrationPage() {
                 ? `You are now an organizer for ${selectedHackathon?.name}.`
                 : `You are now registered for ${selectedHackathon?.name}`}
             </p>
+            {teamWasCreated && (
+              <p className="text-foreground/60 text-sm mb-2">
+                A private GitHub repository and Discord channel have been created for your team.
+              </p>
+            )}
+            {selectedTeam && !teamWasCreated && selectedTeam.discord_channel_id && (
+              <p className="text-foreground/60 text-sm mb-2">
+                You have been added to your team's Discord channel.
+              </p>
+            )}
             <p className="text-foreground/40 text-xs">
               Redirecting to your{" "}
               {chosenRole === "organizer" ? "dashboard" : "onboarding page"}…
