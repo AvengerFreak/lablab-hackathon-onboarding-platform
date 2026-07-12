@@ -7,7 +7,6 @@ import { SiGithub, SiDiscord } from "react-icons/si";
 
 type AuthView = "signin" | "signup" | "link_accounts";
 type AuthRole = "participant" | "organizer";
-
 type LinkStep = "none" | "github" | "discord" | "both";
 
 export default function Auth() {
@@ -27,7 +26,9 @@ export default function Auth() {
 
   useEffect(() => {
     async function checkSession() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (!session?.user) return;
 
       const {
@@ -157,7 +158,6 @@ export default function Auth() {
             ? "Check your email for a confirmation link. After confirming, sign in and select organizer."
             : "Check your email for a confirmation link to complete sign up.",
       });
-      setView("signin");
       setLoading(false);
       return;
     }
@@ -219,7 +219,9 @@ export default function Auth() {
   }
 
   async function handleContinueAfterLinking() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session?.user) {
       setMessage({ type: "error", text: "Session expired. Please sign in again." });
       return;
@@ -230,6 +232,34 @@ export default function Auth() {
 
   function toggleRole() {
     setRole((prev) => (prev === "participant" ? "organizer" : "participant"));
+  }
+
+  async function handleGithubOAuth() {
+    if (role === "organizer") {
+      sessionStorage.setItem("pending_role", "organizer");
+    } else {
+      sessionStorage.setItem("pending_role", "participant");
+    }
+
+    setLoading(true);
+    setMessage(null);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: { redirectTo: window.location.origin },
+    });
+
+    if (error) {
+      sessionStorage.removeItem("pending_role");
+      setMessage({
+        type: "error",
+        text: error.message || "GitHub sign-in failed.",
+      });
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
   }
 
   return (
@@ -380,26 +410,7 @@ export default function Auth() {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (role === "organizer") {
-                    sessionStorage.setItem("pending_role", "organizer");
-                  } else {
-                    sessionStorage.setItem("pending_role", "participant");
-                  }
-                  setLoading(true);
-                  setMessage(null);
-                  supabase.auth.signInWithOAuth({
-                    provider: "github",
-                    options: { redirectTo: window.location.origin },
-                  }).catch((err) => {
-                    sessionStorage.removeItem("pending_role");
-                    setMessage({
-                      type: "error",
-                      text: err instanceof Error ? err.message : "GitHub sign-in failed.",
-                    });
-                    setLoading(false);
-                  });
-                }}
+                onClick={handleGithubOAuth}
                 disabled={loading}
                 className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
               >
@@ -435,17 +446,7 @@ export default function Auth() {
               {(linkStep === "both" || linkStep === "github") && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    setLinkingLoading(true);
-                    setMessage(null);
-                    const { error } = await supabase.auth.linkIdentity({ provider: "github" });
-                    if (error) {
-                      setMessage({ type: "error", text: error.message });
-                      setLinkingLoading(false);
-                      return;
-                    }
-                    setLinkingLoading(false);
-                  }}
+                  onClick={linkGithub}
                   disabled={linkingLoading}
                   className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
                 >
@@ -461,17 +462,7 @@ export default function Auth() {
               {(linkStep === "both" || linkStep === "discord") && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    setLinkingLoading(true);
-                    setMessage(null);
-                    const { error } = await supabase.auth.linkIdentity({ provider: "discord" });
-                    if (error) {
-                      setMessage({ type: "error", text: error.message });
-                      setLinkingLoading(false);
-                      return;
-                    }
-                    setLinkingLoading(false);
-                  }}
+                  onClick={linkDiscord}
                   disabled={linkingLoading}
                   className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
                 >

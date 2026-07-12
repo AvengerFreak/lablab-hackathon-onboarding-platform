@@ -6,22 +6,24 @@ import { APP_NAME, APP_TAGLINE } from "../../lib/config";
 
 const render = (ui: React.ReactElement) => baseRender(<MemoryRouter>{ui}</MemoryRouter>);
 
-// Mock supabase
 const mockSignInWithPassword = vi.fn();
 const mockSignUp = vi.fn();
 const mockSignInWithOAuth = vi.fn();
 const mockGetSession = vi.fn();
+const mockGetUserIdentities = vi.fn();
+const mockLinkIdentity = vi.fn();
 const mockUpdateUser = vi.fn();
 const mockUpsert = vi.fn();
 
 vi.mock("../../lib/supabase", () => ({
   supabase: {
     auth: {
-      signInWithPassword: (...args: unknown[]) =>
-        mockSignInWithPassword(...args),
+      signInWithPassword: (...args: unknown[]) => mockSignInWithPassword(...args),
       signUp: (...args: unknown[]) => mockSignUp(...args),
       signInWithOAuth: (...args: unknown[]) => mockSignInWithOAuth(...args),
       getSession: (...args: unknown[]) => mockGetSession(...args),
+      getUserIdentities: (...args: unknown[]) => mockGetUserIdentities(...args),
+      linkIdentity: (...args: unknown[]) => mockLinkIdentity(...args),
       updateUser: (...args: unknown[]) => mockUpdateUser(...args),
     },
     from: () => ({
@@ -35,7 +37,6 @@ vi.mock("../../lib/config", () => ({
   APP_TAGLINE: "Get ready to build",
 }));
 
-// Mock window.location
 delete (window as Partial<Window>).location;
 (window as Partial<Window>).location = { origin: "http://localhost:3000" } as Location;
 
@@ -43,6 +44,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   sessionStorage.clear();
   mockGetSession.mockResolvedValue({ data: { session: null }, error: null });
+  mockGetUserIdentities.mockResolvedValue({
+    data: { identities: [] },
+    error: null,
+  });
 });
 
 describe("Auth", () => {
@@ -58,9 +63,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    expect(
-      screen.getByPlaceholderText("you@example.com")
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("you@example.com")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Password")).toBeInTheDocument();
   });
 
@@ -108,7 +111,10 @@ describe("Auth", () => {
 
   it("calls signInWithPassword on Sign In submit", async () => {
     const user = userEvent.setup();
-    mockSignInWithPassword.mockResolvedValue({ data: { user: { id: "u1" } }, error: null });
+    mockSignInWithPassword.mockResolvedValue({
+      data: { user: { id: "u1" } },
+      error: null,
+    });
 
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
@@ -116,8 +122,7 @@ describe("Auth", () => {
     await user.type(screen.getByPlaceholderText("you@example.com"), "test@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "mypassword");
 
-    const signInBtn = screen.getByRole("button", { name: "Sign In" });
-    await user.click(signInBtn);
+    await user.click(screen.getByRole("button", { name: "Sign In" }));
 
     expect(mockSignInWithPassword).toHaveBeenCalledWith({
       email: "test@example.com",
@@ -140,9 +145,7 @@ describe("Auth", () => {
 
     await user.click(screen.getByRole("button", { name: "Sign In" }));
 
-    expect(
-      screen.getByText(/wrong email or password/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/wrong email or password/i)).toBeInTheDocument();
   });
 
   it("shows generic error message from supabase", async () => {
@@ -170,14 +173,12 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    // Switch to sign up
     await user.click(screen.getByRole("button", { name: "Sign Up tab" }));
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "new@example.com");
     await user.type(screen.getByPlaceholderText("Password"), "password");
 
-    const createBtn = screen.getByRole("button", { name: /create account/i });
-    await user.click(createBtn);
+    await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(mockSignUp).toHaveBeenCalledWith({
       email: "new@example.com",
@@ -190,7 +191,6 @@ describe("Auth", () => {
 
   it("shows confirmation message after sign up when email confirmation needed", async () => {
     const user = userEvent.setup();
-    // User exists but no session = confirmation required
     mockSignUp.mockResolvedValue({
       data: { user: { id: "u1" }, session: null },
       error: null,
@@ -206,7 +206,7 @@ describe("Auth", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(
-      screen.getByText(/check your email for a confirmation link/i)
+      await screen.findByText(/check your email for a confirmation link/i)
     ).toBeInTheDocument();
   });
 
@@ -221,9 +221,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    // Switch to organizer
     await user.click(screen.getByText("I am an organizer"));
-    // Switch to sign up
     await user.click(screen.getByRole("button", { name: "Sign Up tab" }));
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "org@test.com");
@@ -275,9 +273,7 @@ describe("Auth", () => {
     const githubBtn = screen.getByRole("button", { name: /github/i });
     await user.click(githubBtn);
 
-    expect(
-      screen.getByText("OAuth provider error")
-    ).toBeInTheDocument();
+    expect(await screen.findByText("OAuth provider error")).toBeInTheDocument();
   });
 
   it("stores pending_role in sessionStorage when signing in as organizer via GitHub", async () => {
@@ -287,7 +283,6 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    // Switch to organizer
     await user.click(screen.getByText("I am an organizer"));
 
     const githubBtn = screen.getByRole("button", { name: /github/i });
@@ -307,7 +302,6 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    // Switch to organizer
     await user.click(screen.getByText("I am an organizer"));
 
     await user.type(screen.getByPlaceholderText("you@example.com"), "org@test.com");
@@ -323,9 +317,7 @@ describe("Auth", () => {
     const Auth = (await import("../Auth")).default;
     render(<Auth />);
 
-    expect(
-      screen.getByText(/by signing in, you agree to participate/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/by signing in, you agree to participate/i)).toBeInTheDocument();
   });
 
   it("shows Organizer-specific footer text after toggle", async () => {
@@ -335,9 +327,7 @@ describe("Auth", () => {
 
     await user.click(screen.getByText("I am an organizer"));
 
-    expect(
-      screen.getByText(/organizers can create and manage hackathons/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/organizers can create and manage hackathons/i)).toBeInTheDocument();
   });
 
   it("navigates home when logo is clicked", async () => {
@@ -350,25 +340,51 @@ describe("Auth", () => {
     await user.click(logoBtn);
   });
 
-  // New tests for account linking workflow
   describe("Account Linking Workflow", () => {
-    it("shows link accounts view when user has no linked accounts after GitHub OAuth", async () => {
-      const user = userEvent.setup();
+    it("shows link accounts view when user has no linked accounts", async () => {
       mockGetSession.mockResolvedValue({
         data: {
           session: {
             user: {
               id: "u1",
               email: "test@example.com",
-              user_metadata: {},
-              identities: [
-                {
-                  provider: "github",
-                  identity_data: { user_name: "github-user" },
-                },
-              ],
             },
           },
+        },
+        error: null,
+      });
+
+      mockGetUserIdentities.mockResolvedValue({
+        data: { identities: [] },
+        error: null,
+      });
+
+      const Auth = (await import("../Auth")).default;
+      render(<Auth />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Link Your Accounts")).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /link github/i })).toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /link discord/i })).toBeInTheDocument();
+      });
+    });
+
+    it("shows Discord link only when GitHub is already linked", async () => {
+      mockGetSession.mockResolvedValue({
+        data: {
+          session: {
+            user: {
+              id: "u1",
+              email: "test@example.com",
+            },
+          },
+        },
+        error: null,
+      });
+
+      mockGetUserIdentities.mockResolvedValue({
+        data: {
+          identities: [{ provider: "github" }],
         },
         error: null,
       });
@@ -378,62 +394,8 @@ describe("Auth", () => {
 
       await waitFor(() => {
         expect(screen.getByText("Link Your Accounts")).toBeInTheDocument();
-      });
-    });
-
-    it("shows Discord input only when GitHub is already linked", async () => {
-      const user = userEvent.setup();
-      mockGetSession.mockResolvedValue({
-        data: {
-          session: {
-            user: {
-              id: "u1",
-              email: "test@example.com",
-              user_metadata: {},
-              identities: [
-                {
-                  provider: "github",
-                  identity_data: { user_name: "github-user" },
-                },
-              ],
-            },
-          },
-        },
-        error: null,
-      });
-
-      const Auth = (await import("../Auth")).default;
-      render(<Auth />);
-
-      await waitFor(() => {
-        // Should show Discord input but not GitHub input
-        expect(screen.getByPlaceholderText("Discord username")).toBeInTheDocument();
-        expect(screen.queryByPlaceholderText("GitHub username")).not.toBeInTheDocument();
-      });
-    });
-
-    it("shows both GitHub and Discord inputs when neither is linked", async () => {
-      const user = userEvent.setup();
-      mockGetSession.mockResolvedValue({
-        data: {
-          session: {
-            user: {
-              id: "u1",
-              email: "test@example.com",
-              user_metadata: {},
-              identities: [],
-            },
-          },
-        },
-        error: null,
-      });
-
-      const Auth = (await import("../Auth")).default;
-      render(<Auth />);
-
-      await waitFor(() => {
-        expect(screen.getByPlaceholderText("GitHub username")).toBeInTheDocument();
-        expect(screen.getByPlaceholderText("Discord username")).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: /link github/i })).not.toBeInTheDocument();
+        expect(screen.getByRole("button", { name: /link discord/i })).toBeInTheDocument();
       });
     });
   });
