@@ -36,7 +36,7 @@ function ProtectedRoute({
   }
 
   if (auth.role === "unknown") {
-    return <Navigate to="/register" replace />;
+    return <Auth />;
   }
 
   if (allowedRole && auth.role !== allowedRole) {
