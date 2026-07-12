@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { APP_NAME, APP_TAGLINE } from "../lib/config";
-import { getLinkedAccountUsernames } from "../lib/linkedAccounts";
+import { getLinkedAccountUsernames, hasLinkedAccounts, needsDiscordLink, needsBothAccountsLink } from "../lib/linkedAccounts";
 import { Loader2, Users, ShieldCheck, Check } from "lucide-react";
 import { SiGithub, SiDiscord } from "react-icons/si";
 
@@ -24,7 +24,7 @@ export default function Auth() {
   const [discordUsername, setDiscordUsername] = useState("");
   const [linkingLoading, setLinkingLoading] = useState(false);
 
-  // After GitHub OAuth redirect, prompt to link accounts if Discord is missing
+  // After GitHub OAuth redirect, check if we need to link Discord
   useEffect(() => {
     async function checkLinkedAccounts() {
       const {
@@ -38,7 +38,11 @@ export default function Auth() {
       if (gh) setGithubUsername(gh);
       if (dc) setDiscordUsername(dc);
 
-      if (!gh || !dc) {
+      // If user signed up with GitHub OAuth, they need to link Discord
+      if (needsDiscordLink(session.user)) {
+        setView("link_accounts");
+      } else if (needsBothAccountsLink(session.user)) {
+        // If neither account is linked, prompt to link both
         setView("link_accounts");
       }
     }
@@ -123,11 +127,29 @@ export default function Auth() {
           { onConflict: "auth_user_id" }
         );
       }
-      setMessage({
-        type: "success",
-        text: "Account created! Please link your GitHub and Discord accounts to continue.",
-      });
-      setView("link_accounts");
+      // Check if accounts need to be linked
+      const { githubUsername: gh, discordUsername: dc } =
+        getLinkedAccountUsernames(data.user);
+      
+      if (gh) setGithubUsername(gh);
+      if (dc) setDiscordUsername(dc);
+      
+      if (needsDiscordLink(data.user) || needsBothAccountsLink(data.user)) {
+        setMessage({
+          type: "success",
+          text: "Account created! Please link your accounts to continue.",
+        });
+        setView("link_accounts");
+      } else {
+        // Accounts already linked, redirect to registration
+        setMessage({
+          type: "success",
+          text: "Account created! You can now register for a hackathon.",
+        });
+        setTimeout(() => {
+          window.location.href = "/register";
+        }, 1500);
+      }
     }
     setLoading(false);
   }
@@ -158,14 +180,8 @@ export default function Auth() {
 
   async function handleLinkAccounts(e: React.FormEvent) {
     e.preventDefault();
-    if (!githubUsername.trim() || !discordUsername.trim()) {
-      setMessage({ type: "error", text: "Please enter both GitHub and Discord usernames." });
-      return;
-    }
-
-    setLinkingLoading(true);
-    setMessage(null);
-
+    
+    // Determine what needs to be linked
     const {
       data: { session },
     } = await supabase.auth.getSession();
@@ -175,11 +191,42 @@ export default function Auth() {
       return;
     }
 
+    const { githubUsername: currentGh, discordUsername: currentDc } =
+      getLinkedAccountUsernames(session.user);
+
+    // If user signed up with GitHub, they already have githubUsername
+    // So we only need discordUsername
+    const needsDiscordOnly = currentGh && !currentDc;
+    const needsBoth = !currentGh && !currentDc;
+
+    if (needsDiscordOnly) {
+      // Only need Discord
+      if (!discordUsername.trim()) {
+        setMessage({ type: "error", text: "Please enter your Discord username." });
+        return;
+      }
+    } else if (needsBoth) {
+      // Need both
+      if (!githubUsername.trim() || !discordUsername.trim()) {
+        setMessage({ type: "error", text: "Please enter both GitHub and Discord usernames." });
+        return;
+      }
+    }
+
+    setLinkingLoading(true);
+    setMessage(null);
+
+    const updateData: Record<string, string> = {};
+    
+    if (needsBoth || !currentGh) {
+      updateData.github_username = githubUsername.trim();
+    }
+    if (needsDiscordOnly || !currentDc) {
+      updateData.discord_username = discordUsername.trim();
+    }
+
     const { error: updateError } = await supabase.auth.updateUser({
-      data: {
-        github_username: githubUsername.trim(),
-        discord_username: discordUsername.trim(),
-      },
+      data: updateData,
     });
 
     if (updateError) {
@@ -388,7 +435,7 @@ export default function Auth() {
           </div>
         </div>
 
-        {/* ─── Link Accounts View ───────────────────── */}
+        {/* Link Accounts View */}
         {view === "link_accounts" && (
           <div className="w-full max-w-sm mt-6">
             <div className="bg-muted border border-border rounded-2xl p-6">
@@ -396,7 +443,9 @@ export default function Auth() {
                 Link Your Accounts
               </h2>
               <p className="text-foreground/60 text-sm text-center mb-6">
-                Connect your GitHub and Discord accounts to participate in hackathons
+                {githubUsername 
+                  ? "Please link your Discord account to continue."
+                  : "Connect your GitHub and Discord accounts to participate in hackathons"}
               </p>
 
               {message && (
@@ -413,26 +462,28 @@ export default function Auth() {
               )}
 
               <form onSubmit={handleLinkAccounts} className="space-y-4">
-                <div>
-                  <label htmlFor="link-github" className="sr-only">
-                    GitHub Username
-                  </label>
-                  <div className="relative">
-                    <SiGithub
-                      className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="link-github"
-                      type="text"
-                      value={githubUsername}
-                      onChange={(e) => setGithubUsername(e.target.value)}
-                      placeholder="GitHub username"
-                      required
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                    />
+                {!githubUsername && (
+                  <div>
+                    <label htmlFor="link-github" className="sr-only">
+                      GitHub Username
+                    </label>
+                    <div className="relative">
+                      <SiGithub
+                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
+                        aria-hidden="true"
+                      />
+                      <input
+                        id="link-github"
+                        type="text"
+                        value={githubUsername}
+                        onChange={(e) => setGithubUsername(e.target.value)}
+                        placeholder="GitHub username"
+                        required={!githubUsername}
+                        className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div>
                   <label htmlFor="link-discord" className="sr-only">
@@ -457,7 +508,8 @@ export default function Auth() {
 
                 <button
                   type="submit"
-                  disabled={linkingLoading || !githubUsername.trim() || !discordUsername.trim()}
+                  disabled={linkingLoading || 
+                    (githubUsername ? !discordUsername.trim() : !githubUsername.trim() || !discordUsername.trim())}
                   className="w-full py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
                 >
                   {linkingLoading ? (
@@ -465,7 +517,7 @@ export default function Auth() {
                   ) : (
                     <Check className="w-4 h-4" aria-hidden="true" />
                   )}
-                  Link Accounts & Continue
+                  {githubUsername ? "Link Discord & Continue" : "Link Accounts & Continue"}
                 </button>
               </form>
             </div>
