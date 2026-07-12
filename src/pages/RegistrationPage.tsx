@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
 import { getLinkedAccountUsernames, hasLinkedAccounts } from "../lib/linkedAccounts";
@@ -17,10 +17,7 @@ import {
   AlertCircle,
   LogOut,
 } from "lucide-react";
-import { SiGithub, SiDiscord } from "react-icons/si";
 import TeamLeadGithubPatStep from "../components/TeamLeadGithubPatStep";
-
-/* Types */
 
 interface HackathonWithTeams extends Tables<"hackathons"> {
   teams: Tables<"teams">[];
@@ -35,8 +32,6 @@ type RegistrationStep =
   | "confirming"
   | "done";
 
-/* Helpers */
-
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleDateString("en-US", {
@@ -46,30 +41,25 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
-/* Main Registration Page */
-
 export default function RegistrationPage() {
   const auth = useAuth();
   const navigate = useNavigate();
 
+  const [authReady, setAuthReady] = useState(false);
+  const [registrationReady, setRegistrationReady] = useState(false);
+
   const [step, setStep] = useState<RegistrationStep>("role");
-  const [chosenRole, setChosenRole] = useState<"participant" | "organizer">(
-    auth.role === "organizer" ? "organizer" : "participant"
-  );
+  const [chosenRole, setChosenRole] = useState<"participant" | "organizer">("participant");
   const [githubUsername, setGithubUsername] = useState("");
   const [discordUsername, setDiscordUsername] = useState("");
   const [hackathons, setHackathons] = useState<HackathonWithTeams[]>([]);
   const [loadingHackathons, setLoadingHackathons] = useState(true);
-  const [selectedHackathon, setSelectedHackathon] =
-    useState<HackathonWithTeams | null>(null);
-  const [selectedTeam, setSelectedTeam] = useState<Tables<"teams"> | null>(
-    null
-  );
+  const [selectedHackathon, setSelectedHackathon] = useState<HackathonWithTeams | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<Tables<"teams"> | null>(null);
   const [newTeamName, setNewTeamName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // Existing registration
   const [existingRegistration, setExistingRegistration] = useState<{
     participant: Tables<"participants">;
     hackathon: Tables<"hackathons">;
@@ -81,31 +71,22 @@ export default function RegistrationPage() {
   const [teamWasCreated, setTeamWasCreated] = useState(false);
   const [teamLeadGithubPat, setTeamLeadGithubPat] = useState("");
 
-  // Initialize from auth state
   useEffect(() => {
-    if (auth.status !== "authenticated") return;
+    if (auth.status === "loading") return;
 
-    const { githubUsername: gh, discordUsername: dc } =
-      getLinkedAccountUsernames(auth.user);
+    if (auth.status === "authenticated") {
+      const { githubUsername: gh, discordUsername: dc } = getLinkedAccountUsernames(auth.user);
 
-    if (gh) setGithubUsername(gh);
-    if (dc) setDiscordUsername(dc);
+      if (gh) setGithubUsername(gh);
+      if (dc) setDiscordUsername(dc);
 
-    // Check if accounts are linked
-    if (!hasLinkedAccounts(auth.user)) {
-      // Redirect to auth to link accounts
-      navigate("/", { replace: true });
-      return;
+      setChosenRole(auth.role === "organizer" ? "organizer" : "participant");
+      setStep(auth.role === "unknown" ? "role" : "hackathon");
     }
 
-    if (auth.role === "unknown") {
-      setStep("role");
-    } else {
-      setStep("hackathon");
-    }
-  }, [auth, navigate]);
+    setAuthReady(true);
+  }, [auth.status, auth.user, auth.role]);
 
-  // Fetch hackathons with teams
   useEffect(() => {
     async function fetchHackathons() {
       setLoadingHackathons(true);
@@ -114,14 +95,7 @@ export default function RegistrationPage() {
         .select("*")
         .order("start_date", { ascending: true, nullsLast: true });
 
-      if (!hackData) {
-        setLoadingHackathons(false);
-        return;
-      }
-
-      const { data: teamData } = await supabase
-        .from("teams")
-        .select("*");
+      const { data: teamData } = await supabase.from("teams").select("*");
 
       const teamsByHackathon = new Map<string, Tables<"teams">[]>();
       for (const t of teamData ?? []) {
@@ -130,28 +104,32 @@ export default function RegistrationPage() {
         teamsByHackathon.set(t.hackathon_id, arr);
       }
 
-      const enriched: HackathonWithTeams[] = (hackData as Tables<"hackathons">[]).map(
-        (h) => {
-          const teams = teamsByHackathon.get(h.id) ?? [];
-          return { ...h, teams, teamCount: teams.length };
-        }
-      );
+      const enriched: HackathonWithTeams[] = (hackData ?? []).map((h) => {
+        const teams = teamsByHackathon.get(h.id) ?? [];
+        return { ...(h as Tables<"hackathons">), teams, teamCount: teams.length };
+      });
 
       setHackathons(enriched);
       setLoadingHackathons(false);
     }
+
     fetchHackathons();
   }, []);
 
-  // Fetch existing participant registration
   useEffect(() => {
     async function fetchExisting() {
       setLoadingExisting(true);
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
+
+      if (auth.status !== "authenticated") {
+        setLoadingExisting(false);
+        setRegistrationReady(true);
+        return;
+      }
+
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) {
         setLoadingExisting(false);
+        setRegistrationReady(true);
         return;
       }
 
@@ -168,20 +146,19 @@ export default function RegistrationPage() {
           team: ((participant as Record<string, unknown>).team as Tables<"teams">) ?? null,
         });
       }
-      setLoadingExisting(false);
-    }
-    fetchExisting();
-  }, []);
 
-  /* Role Selection */
+      setLoadingExisting(false);
+      setRegistrationReady(true);
+    }
+
+    fetchExisting();
+  }, [auth.status]);
 
   const handleRoleSelect = useCallback((role: "participant" | "organizer") => {
     setChosenRole(role);
     setError(null);
     setStep("hackathon");
   }, []);
-
-  /* Hackathon Selection */
 
   const handleHackathonSelect = useCallback(
     (hack: HackathonWithTeams) => {
@@ -191,18 +168,10 @@ export default function RegistrationPage() {
       setTeamWasCreated(false);
       setTeamLeadGithubPat("");
       setError(null);
-
-      if (chosenRole === "organizer") {
-        setStep("confirming");
-      } else {
-        // For participants, they need to select/create a team first
-        setStep("team");
-      }
+      setStep(chosenRole === "organizer" ? "confirming" : "team");
     },
     [chosenRole]
   );
-
-  /* Team Selection */
 
   const handleTeamSelect = useCallback((team: Tables<"teams">) => {
     setSelectedTeam(team);
@@ -217,10 +186,7 @@ export default function RegistrationPage() {
     setSubmitting(true);
     setError(null);
 
-    // Check if user already has a team in this hackathon
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
       setError("Session expired. Please sign in again.");
       setSubmitting(false);
@@ -265,13 +231,10 @@ export default function RegistrationPage() {
     setStep("github_pat");
   }, [newTeamName, selectedHackathon]);
 
-  /* Sign Out */
-
   const handleSignOut = useCallback(async () => {
     await supabase.auth.signOut();
-  }, []);
-
-  /* Un-register from Hackathon */
+    navigate("/", { replace: true });
+  }, [navigate]);
 
   const handleUnregister = useCallback(async () => {
     if (!existingRegistration) return;
@@ -294,8 +257,6 @@ export default function RegistrationPage() {
     setSubmitting(false);
   }, [existingRegistration]);
 
-  /* Leave Team */
-
   const handleLeaveTeam = useCallback(async () => {
     if (!existingRegistration) return;
     setSubmitting(true);
@@ -313,15 +274,11 @@ export default function RegistrationPage() {
     }
 
     setExistingRegistration((prev) =>
-      prev
-        ? { ...prev, participant: { ...prev.participant, team_id: null }, team: null }
-        : null
+      prev ? { ...prev, participant: { ...prev.participant, team_id: null }, team: null } : null
     );
     setConfirmingLeaveTeam(false);
     setSubmitting(false);
   }, [existingRegistration]);
-
-  /* Submit Registration */
 
   const handleSubmit = useCallback(async () => {
     if (!selectedHackathon) return;
@@ -329,9 +286,7 @@ export default function RegistrationPage() {
     setSubmitting(true);
     setError(null);
 
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) {
       setError("Session expired. Please sign in again.");
       setSubmitting(false);
@@ -343,7 +298,6 @@ export default function RegistrationPage() {
 
     try {
       if (chosenRole === "organizer") {
-        // Create or update organizers record
         const { data: organizer, error: orgError } = await supabase
           .from("organizers")
           .upsert(
@@ -355,7 +309,6 @@ export default function RegistrationPage() {
 
         if (orgError) throw new Error(orgError.message);
 
-        // Link organizer to hackathon
         const { error: linkError } = await supabase
           .from("organizer_hackathons")
           .insert({
@@ -363,16 +316,12 @@ export default function RegistrationPage() {
             hackathon_id: selectedHackathon.id,
           });
 
-        if (linkError) {
-          // Ignore duplicate
-          if (!linkError.message.includes("duplicate")) {
-            throw new Error(linkError.message);
-          }
+        if (linkError && !linkError.message.includes("duplicate")) {
+          throw new Error(linkError.message);
         }
 
         setStep("done");
       } else {
-        // Participant registration
         if (!selectedTeam) {
           setError("Please select or create a team.");
           setSubmitting(false);
@@ -386,7 +335,6 @@ export default function RegistrationPage() {
           return;
         }
 
-        // Get GitHub and Discord usernames from linked account state
         const ghUsername = githubUsername.trim() || null;
         const dcUsername = discordUsername.trim() || null;
 
@@ -396,7 +344,7 @@ export default function RegistrationPage() {
             {
               auth_user_id: userId,
               email,
-              name: email.split("@")[0], // Use email prefix as name
+              name: email.split("@")[0],
               hackathon_id: selectedHackathon.id,
               team_id: selectedTeam.id,
               github_username: ghUsername,
@@ -416,7 +364,6 @@ export default function RegistrationPage() {
             .eq("id", selectedTeam.id);
         }
 
-        // Provision GitHub repo + Discord channel for the team
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         if (currentSession?.access_token) {
           const { error: infraError } = await supabase.functions.invoke(
@@ -431,14 +378,10 @@ export default function RegistrationPage() {
               headers: { Authorization: `Bearer ${currentSession.access_token}` },
             }
           );
-          if (infraError) {
-            console.error("Team infrastructure provisioning failed:", infraError);
-          }
+          if (infraError) console.error("Team infrastructure provisioning failed:", infraError);
         }
 
-        // If joining an existing team (not creating), add user to Discord channel
         if (!teamWasCreated && selectedTeam.discord_channel_id) {
-          // Add participant to Discord channel
           const { data: { session: currentSession } } = await supabase.auth.getSession();
           if (currentSession?.access_token) {
             const { error: addError } = await supabase.functions.invoke(
@@ -452,9 +395,7 @@ export default function RegistrationPage() {
                 headers: { Authorization: `Bearer ${currentSession.access_token}` },
               }
             );
-            if (addError) {
-              console.error("Failed to add participant to Discord channel:", addError);
-            }
+            if (addError) console.error("Failed to add participant to Discord channel:", addError);
           }
         }
 
@@ -462,9 +403,7 @@ export default function RegistrationPage() {
         setStep("done");
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Registration failed. Try again."
-      );
+      setError(err instanceof Error ? err.message : "Registration failed. Try again.");
     } finally {
       setSubmitting(false);
     }
@@ -478,24 +417,15 @@ export default function RegistrationPage() {
     teamLeadGithubPat,
   ]);
 
-  /* After success, redirect */
-
   useEffect(() => {
-    if (step === "done") {
-      const timer = setTimeout(() => {
-        if (chosenRole === "organizer") {
-          navigate("/dashboard");
-        } else {
-          navigate("/wizard");
-        }
-      }, 2000);
-      return () => clearTimeout(timer);
-    }
+    if (step !== "done") return;
+    const timer = setTimeout(() => {
+      navigate(chosenRole === "organizer" ? "/dashboard" : "/wizard", { replace: true });
+    }, 2000);
+    return () => clearTimeout(timer);
   }, [step, chosenRole, navigate]);
 
-  /* Loading */
-
-  if (auth.status === "loading") {
+  if (auth.status === "loading" || !authReady || !registrationReady) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-accent animate-spin" />
@@ -507,11 +437,8 @@ export default function RegistrationPage() {
     return <Navigate to="/" replace />;
   }
 
-  /* Render */
-
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      {/* Sign out — top right */}
       <div className="fixed top-4 right-4 z-10">
         <button
           type="button"
@@ -525,7 +452,6 @@ export default function RegistrationPage() {
       </div>
 
       <div className="w-full max-w-2xl">
-        {/* Logo / Brand */}
         <div className="mb-8 text-center">
           <button
             onClick={() => navigate("/")}
@@ -542,7 +468,6 @@ export default function RegistrationPage() {
           </p>
         </div>
 
-        {/* Error */}
         {error && (
           <div
             role="alert"
@@ -553,19 +478,16 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* Step: Choose Role */}
         {step === "role" && (
           <div className="space-y-4">
             <p className="text-foreground/60 text-sm text-center mb-6">
               How would you like to participate?
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Participant card */}
               <button
                 type="button"
                 onClick={() => handleRoleSelect("participant")}
                 className="bg-muted border border-border rounded-2xl p-6 text-left hover:border-accent/40 hover:bg-muted/80 transition-all duration-200 active:scale-[0.98] cursor-pointer group"
-                aria-label="Register as participant"
               >
                 <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center mb-4 group-hover:bg-accent/20 transition-colors duration-200">
                   <Users className="w-6 h-6 text-accent" aria-hidden="true" />
@@ -574,37 +496,29 @@ export default function RegistrationPage() {
                   Participant
                 </h3>
                 <p className="text-sm text-foreground/60 leading-relaxed">
-                  Join a team, complete onboarding steps, and build your project
-                  to win.
+                  Join a team, complete onboarding steps, and build your project to win.
                 </p>
               </button>
 
-              {/* Organizer card */}
               <button
                 type="button"
                 onClick={() => handleRoleSelect("organizer")}
                 className="bg-muted border border-border rounded-2xl p-6 text-left hover:border-accent/40 hover:bg-muted/80 transition-all duration-200 active:scale-[0.98] cursor-pointer group"
-                aria-label="Register as organizer"
               >
                 <div className="w-12 h-12 rounded-xl bg-secondary/10 border border-secondary/20 flex items-center justify-center mb-4 group-hover:bg-secondary/20 transition-colors duration-200">
-                  <ShieldCheck
-                    className="w-6 h-6 text-secondary"
-                    aria-hidden="true"
-                  />
+                  <ShieldCheck className="w-6 h-6 text-secondary" aria-hidden="true" />
                 </div>
                 <h3 className="font-heading text-base text-foreground tracking-wider uppercase mb-2">
                   Organizer
                 </h3>
                 <p className="text-sm text-foreground/60 leading-relaxed">
-                  Manage hackathons, import teams, approve participants, and
-                  track progress.
+                  Manage hackathons, import teams, approve participants, and track progress.
                 </p>
               </button>
             </div>
           </div>
         )}
 
-        {/* Step: Choose Hackathon */}
         {step === "hackathon" && (
           <div>
             <div className="flex items-center gap-2 mb-6">
@@ -640,38 +554,18 @@ export default function RegistrationPage() {
                     type="button"
                     onClick={() => handleHackathonSelect(hack)}
                     className="bg-muted border border-border rounded-2xl p-5 text-left hover:border-accent/40 hover:bg-muted/80 transition-all duration-200 active:scale-[0.98] cursor-pointer group text-start"
-                    style={{
-                      animationDelay: `${index * 60}ms`,
-                    }}
-                    aria-label={`Select ${hack.name}`}
+                    style={{ animationDelay: `${index * 60}ms` }}
                   >
-                    {/* Hackathon name */}
                     <h3 className="font-heading text-sm text-foreground tracking-wider uppercase truncate mb-2">
                       {hack.name}
                     </h3>
-
-                    {/* Status badge */}
-                    <span
-                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border mb-3 ${
-                        hack.start_date &&
-                        new Date(hack.start_date) > new Date()
-                          ? "bg-secondary/10 border-secondary/30 text-secondary"
-                          : hack.end_date &&
-                              new Date(hack.end_date) < new Date()
-                            ? "bg-foreground/5 border-foreground/20 text-foreground/50"
-                            : "bg-accent/10 border-accent/30 text-accent"
-                      }`}
-                    >
-                      {hack.start_date &&
-                      new Date(hack.start_date) > new Date()
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border mb-3 bg-accent/10 border-accent/30 text-accent">
+                      {hack.start_date && new Date(hack.start_date) > new Date()
                         ? "Upcoming"
-                        : hack.end_date &&
-                            new Date(hack.end_date) < new Date()
-                          ? "Ended"
-                          : "Active"}
+                        : hack.end_date && new Date(hack.end_date) < new Date()
+                        ? "Ended"
+                        : "Active"}
                     </span>
-
-                    {/* Dates */}
                     <div className="flex items-center gap-1.5 text-xs text-foreground/40 mb-2">
                       <Calendar className="w-3 h-3" aria-hidden="true" />
                       <span>
@@ -679,14 +573,10 @@ export default function RegistrationPage() {
                         {hack.end_date ? ` — ${formatDate(hack.end_date)}` : ""}
                       </span>
                     </div>
-
-                    {/* Teams count */}
                     <div className="flex items-center gap-1.5 text-xs text-foreground/40">
                       <Users className="w-3 h-3" aria-hidden="true" />
                       <span>{hack.teamCount} team{hack.teamCount !== 1 ? "s" : ""}</span>
                     </div>
-
-                    {/* Select indicator */}
                     <div className="mt-3 flex items-center gap-1.5 text-xs text-accent opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                       <span>Select</span>
                       <ChevronRight className="w-3 h-3" aria-hidden="true" />
@@ -698,7 +588,6 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* Step: Choose Team */}
         {step === "team" && selectedHackathon && (
           <div>
             <div className="flex items-center gap-2 mb-6">
@@ -725,7 +614,6 @@ export default function RegistrationPage() {
               </div>
             </div>
 
-            {/* Existing teams */}
             {selectedHackathon.teams.length > 0 && (
               <div className="space-y-2 mb-6">
                 <p className="text-xs text-foreground/50 uppercase tracking-wider mb-3">
@@ -741,8 +629,6 @@ export default function RegistrationPage() {
                         ? "bg-accent/10 border-accent text-accent"
                         : "bg-muted border-border hover:border-accent/30 hover:bg-muted/80"
                     }`}
-                    aria-label={`Join team ${team.name}`}
-                    aria-pressed={selectedTeam?.id === team.id}
                   >
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-background border border-border flex items-center justify-center">
@@ -767,7 +653,6 @@ export default function RegistrationPage() {
               </div>
             )}
 
-            {/* Create new team */}
             <div className="border-t border-border/40 pt-5">
               <p className="text-xs text-foreground/50 uppercase tracking-wider mb-3">
                 Or create a new team
@@ -782,7 +667,6 @@ export default function RegistrationPage() {
                   }}
                   placeholder="Your team name"
                   className="flex-1 bg-muted border border-border rounded-xl px-4 py-2.5 text-sm text-foreground placeholder:text-foreground/30 focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/30 transition-all duration-150"
-                  aria-label="New team name"
                 />
                 <button
                   type="button"
@@ -800,7 +684,6 @@ export default function RegistrationPage() {
               </div>
             </div>
 
-            {/* Continue — joining an existing team only */}
             {!teamWasCreated && (
               <div className="mt-6">
                 <button
@@ -817,7 +700,6 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* Step: Team Lead GitHub PAT */}
         {step === "github_pat" && selectedTeam && (
           <TeamLeadGithubPatStep
             teamName={selectedTeam.name}
@@ -839,15 +721,12 @@ export default function RegistrationPage() {
           />
         )}
 
-
-        {/* Step: Confirming / Submitting */}
         {step === "confirming" && selectedHackathon && (
           <div className="bg-muted border border-border rounded-2xl p-6">
             <h2 className="font-heading text-base text-foreground tracking-wider uppercase mb-4">
               Confirm Registration
             </h2>
 
-            {/* Summary */}
             <div className="space-y-3 mb-6">
               <div className="flex items-center justify-between py-2 border-b border-border/40">
                 <span className="text-xs text-foreground/50 uppercase tracking-wider">Role</span>
@@ -861,57 +740,7 @@ export default function RegistrationPage() {
                   {selectedHackathon.name}
                 </span>
               </div>
-              {chosenRole === "participant" && selectedTeam && (
-                <div className="flex items-center justify-between py-2 border-b border-border/40">
-                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Team</span>
-                  <span className="text-sm text-foreground font-medium">
-                    {selectedTeam.name}
-                  </span>
-                </div>
-              )}
-              {chosenRole === "participant" && githubUsername.trim() && (
-                <div className="flex items-center justify-between py-2 border-b border-border/40">
-                  <span className="text-xs text-foreground/50 uppercase tracking-wider">GitHub</span>
-                  <span className="text-sm text-foreground font-mono">
-                    {githubUsername.trim()}
-                  </span>
-                </div>
-              )}
-              {chosenRole === "participant" && discordUsername.trim() && (
-                <div className="flex items-center justify-between py-2 border-b border-border/40">
-                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Discord</span>
-                  <span className="text-sm text-foreground font-mono">
-                    {discordUsername.trim()}
-                  </span>
-                </div>
-              )}
-              {chosenRole === "participant" && teamWasCreated && (
-                <div className="flex items-center justify-between py-2 border-b border-border/40">
-                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Action</span>
-                  <span className="text-sm text-foreground">
-                    Create team repo & Discord channel
-                  </span>
-                </div>
-              )}
-              {chosenRole === "participant" && !teamWasCreated && selectedTeam?.discord_channel_id && (
-                <div className="flex items-center justify-between py-2 border-b border-border/40">
-                  <span className="text-xs text-foreground/50 uppercase tracking-wider">Action</span>
-                  <span className="text-sm text-foreground">
-                    Add to team Discord channel
-                  </span>
-                </div>
-              )}
             </div>
-
-            {error && (
-              <div
-                role="alert"
-                className="mb-4 flex items-center gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-4 py-3"
-              >
-                <AlertCircle className="w-4 h-4 shrink-0" aria-hidden="true" />
-                {error}
-              </div>
-            )}
 
             <div className="flex gap-3">
               <button
@@ -921,8 +750,8 @@ export default function RegistrationPage() {
                     chosenRole === "organizer"
                       ? "hackathon"
                       : teamWasCreated
-                        ? "github_pat"
-                        : "team"
+                      ? "github_pat"
+                      : "team"
                   )
                 }
                 disabled={submitting}
@@ -952,7 +781,6 @@ export default function RegistrationPage() {
           </div>
         )}
 
-        {/* Step: Done */}
         {step === "done" && (
           <div className="bg-muted border border-border rounded-2xl p-8 text-center">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-accent/15 border border-accent/30 flex items-center justify-center">
@@ -966,19 +794,8 @@ export default function RegistrationPage() {
                 ? `You are now an organizer for ${selectedHackathon?.name}.`
                 : `You are now registered for ${selectedHackathon?.name}`}
             </p>
-            {teamWasCreated && (
-              <p className="text-foreground/60 text-sm mb-2">
-                A private GitHub repository and Discord channel have been created for your team.
-              </p>
-            )}
-            {selectedTeam && !teamWasCreated && selectedTeam.discord_channel_id && (
-              <p className="text-foreground/60 text-sm mb-2">
-                You have been added to your team's Discord channel.
-              </p>
-            )}
             <p className="text-foreground/40 text-xs">
-              Redirecting to your{" "}
-              {chosenRole === "organizer" ? "dashboard" : "onboarding page"}…
+              Redirecting to your {chosenRole === "organizer" ? "dashboard" : "onboarding page"}…
             </p>
             <div className="mt-4 flex justify-center">
               <Loader2 className="w-5 h-5 text-accent animate-spin" aria-hidden="true" />
