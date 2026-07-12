@@ -31,6 +31,10 @@ jobs:
           echo "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" >> .env
           echo "VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}" >> .env
           echo "VITE_DISCORD_INVITE_URL=${{ secrets.VITE_DISCORD_INVITE_URL }}" >> .env
+          echo "DISCORD_SERVER_ID=${{ secrets.DISCORD_SERVER_ID }}" >> .env
+          echo "FIREWORKS_API_KEY=${{ secrets.FIREWORKS_API_KEY }}" >> .env
+          echo "DISCORD_BOT_TOKEN=${{ secrets.DISCORD_BOT_TOKEN }}" >> .env
+          
 
       - name: Run unit tests
         run: npm test
