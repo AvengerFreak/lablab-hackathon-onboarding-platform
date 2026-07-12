@@ -503,10 +503,8 @@ export default function RegistrationPage() {
     );
   }
 
-  // Redirect unauthenticated users to sign-in
   if (auth.status === "unauthenticated") {
-    navigate("/", { replace: true });
-    return null;
+    return <Navigate to="/" replace />;
   }
 
   /* Render */
