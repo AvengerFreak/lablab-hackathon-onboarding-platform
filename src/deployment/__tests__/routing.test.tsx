@@ -57,7 +57,7 @@ function renderApp(initialEntries: string[] = ["/"]) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <App />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
 }
 
@@ -68,6 +68,7 @@ describe("deployment routing safeguards", () => {
     renderApp(["/"]);
 
     expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("registration-page")).not.toBeInTheDocument();
   });
 
   it("redirects authenticated organizers to the dashboard from the landing route", () => {
@@ -80,6 +81,7 @@ describe("deployment routing safeguards", () => {
     renderApp(["/"]);
 
     expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
   });
 
   it("redirects authenticated participants to the wizard from the landing route", () => {
@@ -92,6 +94,7 @@ describe("deployment routing safeguards", () => {
     renderApp(["/"]);
 
     expect(screen.getByTestId("wizard-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
   });
 
   it("routes unknown-role users to auth instead of registration", () => {
@@ -105,5 +108,7 @@ describe("deployment routing safeguards", () => {
 
     expect(screen.getByTestId("auth-page")).toBeInTheDocument();
     expect(screen.queryByTestId("registration-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("wizard-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-page")).not.toBeInTheDocument();
   });
 });
