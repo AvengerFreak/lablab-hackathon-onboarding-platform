@@ -21,11 +21,7 @@ function ProtectedRoute({
 
   if (auth.status === "loading") {
     return (
-      <div
-        className="min-h-screen bg-background flex items-center justify-center"
-        role="status"
-        aria-label="Loading auth state"
-      >
+      <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading auth state">
         <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
       </div>
     );
@@ -35,14 +31,10 @@ function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
-  if (auth.role === "unknown") {
-    return <Auth />;
-  }
-
   if (allowedRole && auth.role !== allowedRole) {
     if (auth.role === "organizer") return <Navigate to="/dashboard" replace />;
     if (auth.role === "participant") return <Navigate to="/wizard" replace />;
-    return <Navigate to="/" replace />;
+    return <Navigate to="/register" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
@@ -66,8 +58,7 @@ function NoAccess({ userEmail }: { userEmail?: string }) {
           but you haven't been invited to a hackathon yet.
         </p>
         <p className="text-foreground/50 text-sm mb-6">
-          Contact your organizer to get access. If you believe this is a mistake, try signing out
-          and signing in again.
+          Contact your organizer to get access. If you believe this is a mistake, try signing out and signing in again.
         </p>
         <button
           onClick={() => supabase.auth.signOut()}
@@ -100,11 +91,7 @@ export default function App() {
             ) : auth.status === "unauthenticated" ? (
               <Auth />
             ) : (
-              <div
-                className="min-h-screen bg-background flex items-center justify-center"
-                role="status"
-                aria-label="Loading app"
-              >
+              <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading app">
                 <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
               </div>
             )
@@ -114,9 +101,19 @@ export default function App() {
         <Route
           path="/register"
           element={
-            <ProtectedRoute>
+            auth.status === "loading" ? (
+              <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading app">
+                <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
+              </div>
+            ) : auth.status === "unauthenticated" ? (
+              <Navigate to="/" replace />
+            ) : auth.role === "unknown" ? (
               <RegistrationPage />
-            </ProtectedRoute>
+            ) : auth.role === "organizer" ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/wizard" replace />
+            )
           }
         />
 
