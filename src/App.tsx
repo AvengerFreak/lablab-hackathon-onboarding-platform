@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import Auth from "./components/Auth";
 import AppLayout from "./components/AppLayout";
@@ -14,7 +14,7 @@ function ProtectedRoute({
   children,
   allowedRole,
 }: {
-  children: React.ReactNode;
+  children?: React.ReactNode;
   allowedRole?: "participant" | "organizer";
 }) {
   const auth = useAuth();
@@ -35,7 +35,6 @@ function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
-  // Unknown role: send to registration
   if (auth.role === "unknown") {
     return <Navigate to="/register" replace />;
   }
@@ -46,7 +45,7 @@ function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
-  return <>{children}</>;
+  return children ? <>{children}</> : <Outlet />;
 }
 
 function NoAccess({ userEmail }: { userEmail?: string }) {
@@ -87,76 +86,76 @@ export default function App() {
   return (
     <>
       <Routes>
-        {/* Public route — sign-in */}
-      <Route
-        path="/"
-        element={
-          auth.status === "authenticated" ? (
-            auth.role === "organizer" ? (
-              <Navigate to="/dashboard" replace />
-            ) : auth.role === "participant" ? (
-              <Navigate to="/wizard" replace />
+        <Route
+          path="/"
+          element={
+            auth.status === "authenticated" ? (
+              auth.role === "organizer" ? (
+                <Navigate to="/dashboard" replace />
+              ) : auth.role === "participant" ? (
+                <Navigate to="/wizard" replace />
+              ) : (
+                <Navigate to="/register" replace />
+              )
+            ) : auth.status === "unauthenticated" ? (
+              <Auth />
             ) : (
-              <Navigate to="/register" replace />
+              <div
+                className="min-h-screen bg-background flex items-center justify-center"
+                role="status"
+                aria-label="Loading app"
+              >
+                <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
+              </div>
             )
-          ) : auth.status === "unauthenticated" ? (
-            <Auth />
-          ) : (
-            <div
-              className="min-h-screen bg-background flex items-center justify-center"
-              role="status"
-              aria-label="Loading app"
-            >
-              <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
-            </div>
-          )
-        }
-      />
-
-      {/* Registration route — accessible to any authenticated user */}
-      <Route path="/register" element={<RegistrationPage />} />
-
-      {/* Authenticated routes wrapped in AppLayout */}
-      <Route
-        element={
-          <ProtectedRoute>
-            <AppLayout />
-          </ProtectedRoute>
-        }
-      >
-        {/* Organizer routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute allowedRole="organizer">
-              <DashboardPlaceholder />
-            </ProtectedRoute>
           }
         />
+
         <Route
-          path="/hackathons"
+          path="/register"
           element={
-            <ProtectedRoute allowedRole="organizer">
-              <HackathonsPlaceholder />
+            <ProtectedRoute>
+              <RegistrationPage />
             </ProtectedRoute>
           }
         />
 
-        {/* Participant routes */}
         <Route
-          path="/wizard"
           element={
-            <ProtectedRoute allowedRole="participant">
-              <WizardPlaceholder />
+            <ProtectedRoute>
+              <AppLayout />
             </ProtectedRoute>
           }
-        />
-      </Route>
+        >
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute allowedRole="organizer">
+                <DashboardPlaceholder />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/hackathons"
+            element={
+              <ProtectedRoute allowedRole="organizer">
+                <HackathonsPlaceholder />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/wizard"
+            element={
+              <ProtectedRoute allowedRole="participant">
+                <WizardPlaceholder />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
 
-      {/* Catch-all */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-    <ChatWidget />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      <ChatWidget />
     </>
   );
 }
