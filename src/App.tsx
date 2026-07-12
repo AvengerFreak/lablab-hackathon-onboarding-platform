@@ -5,7 +5,6 @@ import AppLayout from "./components/AppLayout";
 import DashboardPlaceholder from "./pages/DashboardPlaceholder";
 import WizardPlaceholder from "./pages/WizardPlaceholder";
 import HackathonsPlaceholder from "./pages/HackathonsPlaceholder";
-import RegistrationPage from "./pages/RegistrationPage";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import ChatWidget from "./components/ChatWidget";
@@ -35,10 +34,6 @@ function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
-  if (auth.role === "unknown") {
-    return <Auth />;
-  }
-
   if (allowedRole && auth.role !== allowedRole) {
     if (auth.role === "organizer") return <Navigate to="/dashboard" replace />;
     if (auth.role === "participant") return <Navigate to="/wizard" replace />;
@@ -66,8 +61,7 @@ function NoAccess({ userEmail }: { userEmail?: string }) {
           but you haven't been invited to a hackathon yet.
         </p>
         <p className="text-foreground/50 text-sm mb-6">
-          Contact your organizer to get access. If you believe this is a mistake, try signing out
-          and signing in again.
+          Contact your organizer to get access. If you believe this is a mistake, try signing out and signing in again.
         </p>
         <button
           onClick={() => supabase.auth.signOut()}
@@ -95,7 +89,7 @@ export default function App() {
               ) : auth.role === "participant" ? (
                 <Navigate to="/wizard" replace />
               ) : (
-                <Navigate to="/register" replace />
+                <Auth />
               )
             ) : auth.status === "unauthenticated" ? (
               <Auth />
@@ -114,9 +108,23 @@ export default function App() {
         <Route
           path="/register"
           element={
-            <ProtectedRoute>
-              <RegistrationPage />
-            </ProtectedRoute>
+            auth.status === "loading" ? (
+              <div
+                className="min-h-screen bg-background flex items-center justify-center"
+                role="status"
+                aria-label="Loading app"
+              >
+                <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
+              </div>
+            ) : auth.status !== "authenticated" ? (
+              <Navigate to="/" replace />
+            ) : auth.role === "organizer" ? (
+              <Navigate to="/dashboard" replace />
+            ) : auth.role === "participant" ? (
+              <Navigate to="/wizard" replace />
+            ) : (
+              <Navigate to="/" replace />
+            )
           }
         />
 

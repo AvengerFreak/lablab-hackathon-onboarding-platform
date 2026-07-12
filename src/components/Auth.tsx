@@ -2,12 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { APP_NAME, APP_TAGLINE } from "../lib/config";
-import { getLinkedAccountUsernames, hasLinkedAccounts, needsDiscordLink, needsBothAccountsLink } from "../lib/linkedAccounts";
 import { Loader2, Users, ShieldCheck, Check } from "lucide-react";
 import { SiGithub, SiDiscord } from "react-icons/si";
 
 type AuthView = "signin" | "signup" | "link_accounts";
 type AuthRole = "participant" | "organizer";
+type LinkStep = "none" | "github" | "discord" | "both";
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -16,39 +16,54 @@ export default function Auth() {
   const [view, setView] = useState<AuthView>("signin");
   const [role, setRole] = useState<AuthRole>("participant");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{
-    type: "success" | "error";
-    text: string;
-  } | null>(null);
-  const [githubUsername, setGithubUsername] = useState("");
-  const [discordUsername, setDiscordUsername] = useState("");
   const [linkingLoading, setLinkingLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [linkStep, setLinkStep] = useState<LinkStep>("none");
 
-  // After GitHub OAuth redirect, check if we need to link Discord
   useEffect(() => {
-    async function checkLinkedAccounts() {
+    setMessage(null);
+  }, [view, role]);
+
+  useEffect(() => {
+    async function checkSession() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
       if (!session?.user) return;
 
-      const { githubUsername: gh, discordUsername: dc } =
-        getLinkedAccountUsernames(session.user);
+      const {
+        data: identities,
+        error,
+      } = await supabase.auth.getUserIdentities();
 
-      if (gh) setGithubUsername(gh);
-      if (dc) setDiscordUsername(dc);
+      if (error) return;
 
-      // If user signed up with GitHub OAuth, they need to link Discord
-      if (needsDiscordLink(session.user)) {
-        setView("link_accounts");
-      } else if (needsBothAccountsLink(session.user)) {
-        // If neither account is linked, prompt to link both
-        setView("link_accounts");
+      const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
+      const hasGithub = providers.has("github");
+      const hasDiscord = providers.has("discord");
+
+      if (hasGithub && hasDiscord) {
+        navigate("/hackathons", { replace: true });
+        return;
       }
+
+      if (hasGithub && !hasDiscord) {
+        setView("link_accounts");
+        setLinkStep("discord");
+        return;
+      }
+
+      if (!hasGithub && !hasDiscord) {
+        setView("link_accounts");
+        setLinkStep("both");
+        return;
+      }
+
+      navigate("/hackathons", { replace: true });
     }
 
-    checkLinkedAccounts();
-  }, []);
+    checkSession();
+  }, [navigate]);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -74,13 +89,43 @@ export default function Auth() {
       return;
     }
 
-    // If signing in as organizer, ensure they have an organizers record
+    const {
+      data: identities,
+      error: identitiesError,
+    } = await supabase.auth.getUserIdentities();
+
+    if (identitiesError) {
+      setMessage({ type: "error", text: identitiesError.message });
+      setLoading(false);
+      return;
+    }
+
+    const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
+    const hasGithub = providers.has("github");
+    const hasDiscord = providers.has("discord");
+
     if (role === "organizer" && data.user) {
       await supabase.from("organizers").upsert(
         { auth_user_id: data.user.id, email: data.user.email },
         { onConflict: "auth_user_id" }
       );
+      navigate("/dashboard", { replace: true });
+      setLoading(false);
+      return;
     }
+
+    if (!hasGithub || !hasDiscord) {
+      setView("link_accounts");
+      setLinkStep(!hasGithub && !hasDiscord ? "both" : !hasGithub ? "github" : "discord");
+      setMessage({
+        type: "success",
+        text: "Account created. Please link your GitHub and Discord accounts to continue.",
+      });
+      setLoading(false);
+      return;
+    }
+
+    navigate("/hackathons", { replace: true });
     setLoading(false);
   }
 
@@ -95,7 +140,7 @@ export default function Auth() {
       email: email.trim(),
       password,
       options: {
-        emailRedirectTo: `${window.location.origin}`,
+        emailRedirectTo: window.location.origin,
       },
     });
 
@@ -106,155 +151,119 @@ export default function Auth() {
     }
 
     if (data?.user && !data?.session) {
-      // User already exists but isn't logged in (or confirmation required)
       setMessage({
         type: "success",
         text:
           role === "organizer"
-            ? "Check your email for a confirmation link. After confirming, sign in and select 'I am an organizer' to activate your account."
+            ? "Check your email for a confirmation link. After confirming, sign in and select organizer."
             : "Check your email for a confirmation link to complete sign up.",
       });
-      setView("signin");
       setLoading(false);
       return;
     }
 
     if (data?.user && data?.session) {
-      // No email confirmation needed — session was created immediately
       if (role === "organizer") {
         await supabase.from("organizers").upsert(
           { auth_user_id: data.user.id, email: data.user.email },
           { onConflict: "auth_user_id" }
         );
+        navigate("/dashboard", { replace: true });
+        setLoading(false);
+        return;
       }
-      // Check if accounts need to be linked
-      const { githubUsername: gh, discordUsername: dc } =
-        getLinkedAccountUsernames(data.user);
-      
-      if (gh) setGithubUsername(gh);
-      if (dc) setDiscordUsername(dc);
-      
-      if (needsDiscordLink(data.user) || needsBothAccountsLink(data.user)) {
-        setMessage({
-          type: "success",
-          text: "Account created! Please link your accounts to continue.",
-        });
-        setView("link_accounts");
-      } else {
-        // Accounts already linked, redirect to registration
-        setMessage({
-          type: "success",
-          text: "Account created! You can now register for a hackathon.",
-        });
-        setTimeout(() => {
-          window.location.href = "/register";
-        }, 1500);
-      }
+
+      setView("link_accounts");
+      setLinkStep("both");
+      setMessage({
+        type: "success",
+        text: "Account created. Please link your GitHub and Discord accounts to continue.",
+      });
     }
+
     setLoading(false);
   }
 
-  async function handleGithubOAuth() {
-    setLoading(true);
+  async function linkGithub() {
+    setLinkingLoading(true);
     setMessage(null);
 
-    // Store the intended role so useAuth can pick it up after redirect
-    if (role === "organizer") {
-      sessionStorage.setItem("pending_role", "organizer");
-    }
-
-    const { error } = await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.linkIdentity({
       provider: "github",
-      options: {
-        redirectTo: `${window.location.origin}`,
-      },
     });
 
     if (error) {
-      sessionStorage.removeItem("pending_role");
       setMessage({ type: "error", text: error.message });
-      setLoading(false);
+      setLinkingLoading(false);
+      return;
     }
-    // OAuth redirects away — no need to set loading false
+
+    setLinkingLoading(false);
   }
 
-  async function handleLinkAccounts(e: React.FormEvent) {
-    e.preventDefault();
-    
-    // Determine what needs to be linked
+  async function linkDiscord() {
+    setLinkingLoading(true);
+    setMessage(null);
+
+    const { error } = await supabase.auth.linkIdentity({
+      provider: "discord",
+    });
+
+    if (error) {
+      setMessage({ type: "error", text: error.message });
+      setLinkingLoading(false);
+      return;
+    }
+
+    setLinkingLoading(false);
+  }
+
+  async function handleContinueAfterLinking() {
     const {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.user) {
       setMessage({ type: "error", text: "Session expired. Please sign in again." });
-      setLinkingLoading(false);
       return;
     }
 
-    const { githubUsername: currentGh, discordUsername: currentDc } =
-      getLinkedAccountUsernames(session.user);
-
-    // If user signed up with GitHub, they already have githubUsername
-    // So we only need discordUsername
-    const needsDiscordOnly = currentGh && !currentDc;
-    const needsBoth = !currentGh && !currentDc;
-
-    if (needsDiscordOnly) {
-      // Only need Discord
-      if (!discordUsername.trim()) {
-        setMessage({ type: "error", text: "Please enter your Discord username." });
-        return;
-      }
-    } else if (needsBoth) {
-      // Need both
-      if (!githubUsername.trim() || !discordUsername.trim()) {
-        setMessage({ type: "error", text: "Please enter both GitHub and Discord usernames." });
-        return;
-      }
-    }
-
-    setLinkingLoading(true);
-    setMessage(null);
-
-    const updateData: Record<string, string> = {};
-    
-    if (needsBoth || !currentGh) {
-      updateData.github_username = githubUsername.trim();
-    }
-    if (needsDiscordOnly || !currentDc) {
-      updateData.discord_username = discordUsername.trim();
-    }
-
-    const { error: updateError } = await supabase.auth.updateUser({
-      data: updateData,
-    });
-
-    if (updateError) {
-      setMessage({ type: "error", text: updateError.message });
-      setLinkingLoading(false);
-      return;
-    }
-
-    setMessage({
-      type: "success",
-      text: "Accounts linked successfully! You can now register for a hackathon.",
-    });
-    setLinkingLoading(false);
-    
-    // Redirect to registration after a short delay
-    setTimeout(() => {
-      window.location.href = "/register";
-    }, 1500);
+    navigate("/hackathons", { replace: true });
   }
 
   function toggleRole() {
     setRole((prev) => (prev === "participant" ? "organizer" : "participant"));
+  }
+
+  async function handleGithubOAuth() {
+    if (role === "organizer") {
+      sessionStorage.setItem("pending_role", "organizer");
+    } else {
+      sessionStorage.setItem("pending_role", "participant");
+    }
+
+    setLoading(true);
     setMessage(null);
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "github",
+      options: { redirectTo: window.location.origin },
+    });
+
+    if (error) {
+      sessionStorage.removeItem("pending_role");
+      setMessage({
+        type: "error",
+        text: error.message || "GitHub sign-in failed.",
+      });
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
   }
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
-      {/* Logo / Brand */}
       <div className="mb-8 text-center">
         <button
           onClick={() => navigate("/")}
@@ -269,7 +278,6 @@ export default function Auth() {
         <p className="text-foreground/60 text-sm mt-2 font-sans">{APP_TAGLINE}</p>
       </div>
 
-      {/* Auth Card */}
       <div className="w-full max-w-sm">
         <div className="bg-muted border border-border rounded-2xl p-6">
           {message && (
@@ -285,251 +293,204 @@ export default function Auth() {
             </div>
           )}
 
-          {/* Tabs: Sign In / Sign Up */}
-          <div className="flex mb-6 bg-background rounded-xl p-1 border border-border">
-            <button
-              type="button"
-              aria-label="Sign In tab"
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
-                view === "signin"
-                  ? "bg-accent text-black shadow-sm"
-                  : "text-foreground/60 hover:text-foreground"
-              }`}
-              onClick={() => {
-                setView("signin");
-                setMessage(null);
-              }}
-              aria-pressed={view === "signin"}
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              aria-label="Sign Up tab"
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
-                view === "signup"
-                  ? "bg-accent text-black shadow-sm"
-                  : "text-foreground/60 hover:text-foreground"
-              }`}
-              onClick={() => {
-                setView("signup");
-                setMessage(null);
-              }}
-              aria-pressed={view === "signup"}
-            >
-              Sign Up
-            </button>
-          </div>
+          {(view === "signin" || view === "signup") && (
+            <>
+              <div className="flex mb-6 bg-background rounded-xl p-1 border border-border">
+                <button
+                  type="button"
+                  aria-label="Sign In tab"
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
+                    view === "signin"
+                      ? "bg-accent text-black shadow-sm"
+                      : "text-foreground/60 hover:text-foreground"
+                  }`}
+                  onClick={() => setView("signin")}
+                  aria-pressed={view === "signin"}
+                >
+                  Sign In
+                </button>
+                <button
+                  type="button"
+                  aria-label="Sign Up tab"
+                  className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-150 ${
+                    view === "signup"
+                      ? "bg-accent text-black shadow-sm"
+                      : "text-foreground/60 hover:text-foreground"
+                  }`}
+                  onClick={() => setView("signup")}
+                  aria-pressed={view === "signup"}
+                >
+                  Sign Up
+                </button>
+              </div>
 
-          {/* Role Badge */}
-          <div className="mb-4 flex items-center justify-center gap-2">
-            <span
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
-                role === "organizer"
-                  ? "bg-accent/10 text-accent border-accent/20"
-                  : "bg-background text-foreground/50 border-border"
-              }`}
-            >
-              {role === "organizer" ? (
-                <>
-                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
-                  Organizer
-                </>
-              ) : (
-                <>
-                  <Users className="w-3.5 h-3.5" aria-hidden="true" />
-                  Participant
-                </>
-              )}
-            </span>
-          </div>
-
-          {/* Email / Password Form */}
-          <form
-            onSubmit={view === "signin" ? handleSignIn : handleSignUp}
-            className="space-y-4"
-          >
-            <div>
-              <label htmlFor="auth-email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="auth-email"
-                type="email"
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                autoComplete="email"
-              />
-            </div>
-            <div>
-              <label htmlFor="auth-password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="auth-password"
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                autoComplete={view === "signin" ? "current-password" : "new-password"}
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading || !email.trim() || !password}
-              className="w-full py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-              ) : null}
-              {view === "signin"
-                ? role === "organizer"
-                  ? "Sign In as Organizer"
-                  : "Sign In"
-                : role === "organizer"
-                  ? "Create Organizer Account"
-                  : "Create Account"}
-            </button>
-          </form>
-
-          {/* Divider */}
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-border" />
-            </div>
-            <div className="relative flex justify-center">
-              <span className="px-3 text-xs text-foreground/40 bg-muted">
-                or continue with
-              </span>
-            </div>
-          </div>
-
-          {/* GitHub OAuth */}
-          <button
-            type="button"
-            onClick={handleGithubOAuth}
-            disabled={loading}
-            className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
-          >
-            <SiGithub className="w-5 h-5" aria-hidden="true" />
-            <span className="font-medium">GitHub</span>
-          </button>
-
-          {/* Role Toggle */}
-          <div className="mt-4 text-center">
-            <button
-              type="button"
-              onClick={toggleRole}
-              className="text-sm text-accent hover:text-accent/80 underline underline-offset-2 transition-colors duration-150 cursor-pointer"
-            >
-              {role === "participant"
-                ? "I am an organizer"
-                : "I am a participant"}
-            </button>
-          </div>
-        </div>
-
-        {/* Link Accounts View */}
-        {view === "link_accounts" && (
-          <div className="w-full max-w-sm mt-6">
-            <div className="bg-muted border border-border rounded-2xl p-6">
-              <h2 className="font-heading text-lg text-foreground tracking-wider uppercase mb-2 text-center">
-                Link Your Accounts
-              </h2>
-              <p className="text-foreground/60 text-sm text-center mb-6">
-                {githubUsername 
-                  ? "Please link your Discord account to continue."
-                  : "Connect your GitHub and Discord accounts to participate in hackathons"}
-              </p>
-
-              {message && (
-                <div
-                  role="alert"
-                  className={`mb-4 px-4 py-3 rounded-xl text-sm ${
-                    message.type === "success"
-                      ? "bg-accent/10 text-accent border border-accent/20"
-                      : "bg-destructive/10 text-destructive border border-destructive/20"
+              <div className="mb-4 flex items-center justify-center gap-2">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium border transition-all duration-150 ${
+                    role === "organizer"
+                      ? "bg-accent/10 text-accent border-accent/20"
+                      : "bg-background text-foreground/50 border-border"
                   }`}
                 >
-                  {message.text}
-                </div>
-              )}
+                  {role === "organizer" ? (
+                    <>
+                      <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+                      Organizer
+                    </>
+                  ) : (
+                    <>
+                      <Users className="w-3.5 h-3.5" aria-hidden="true" />
+                      Participant
+                    </>
+                  )}
+                </span>
+              </div>
 
-              <form onSubmit={handleLinkAccounts} className="space-y-4">
-                {!githubUsername && (
-                  <div>
-                    <label htmlFor="link-github" className="sr-only">
-                      GitHub Username
-                    </label>
-                    <div className="relative">
-                      <SiGithub
-                        className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
-                        aria-hidden="true"
-                      />
-                      <input
-                        id="link-github"
-                        type="text"
-                        value={githubUsername}
-                        onChange={(e) => setGithubUsername(e.target.value)}
-                        placeholder="GitHub username"
-                        required={!githubUsername}
-                        className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                      />
-                    </div>
-                  </div>
-                )}
+              <form
+                onSubmit={view === "signin" ? handleSignIn : handleSignUp}
+                className="space-y-4"
+              >
+                <div>
+                  <label htmlFor="auth-email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="auth-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
+                    autoComplete="email"
+                  />
+                </div>
 
                 <div>
-                  <label htmlFor="link-discord" className="sr-only">
-                    Discord Username
+                  <label htmlFor="auth-password" className="sr-only">
+                    Password
                   </label>
-                  <div className="relative">
-                    <SiDiscord
-                      className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-foreground/30"
-                      aria-hidden="true"
-                    />
-                    <input
-                      id="link-discord"
-                      type="text"
-                      value={discordUsername}
-                      onChange={(e) => setDiscordUsername(e.target.value)}
-                      placeholder="Discord username"
-                      required
-                      className="w-full pl-10 pr-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
-                    />
-                  </div>
+                  <input
+                    id="auth-password"
+                    type="password"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full px-4 py-3 bg-background border border-border rounded-xl text-foreground placeholder-foreground/40 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 transition-all duration-150"
+                    autoComplete={view === "signin" ? "current-password" : "new-password"}
+                  />
                 </div>
 
                 <button
                   type="submit"
-                  disabled={linkingLoading || 
-                    (githubUsername ? !discordUsername.trim() : !githubUsername.trim() || !discordUsername.trim())}
+                  disabled={loading || !email.trim() || !password}
                   className="w-full py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : null}
+                  {view === "signin"
+                    ? role === "organizer"
+                      ? "Sign In as Organizer"
+                      : "Sign In"
+                    : role === "organizer"
+                      ? "Create Organizer Account"
+                      : "Create Account"}
+                </button>
+              </form>
+
+              <div className="relative my-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center">
+                  <span className="px-3 text-xs text-foreground/40 bg-muted">or continue with</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleGithubOAuth}
+                disabled={loading}
+                className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
+              >
+                <SiGithub className="w-5 h-5" aria-hidden="true" />
+                <span className="font-medium">GitHub</span>
+              </button>
+
+              <div className="mt-4 text-center">
+                <button
+                  type="button"
+                  onClick={toggleRole}
+                  className="text-sm text-accent hover:text-accent/80 underline underline-offset-2 transition-colors duration-150 cursor-pointer"
+                >
+                  {role === "participant" ? "I am an organizer" : "I am a participant"}
+                </button>
+              </div>
+            </>
+          )}
+
+          {view === "link_accounts" && (
+            <div className="space-y-4">
+              <div className="text-center">
+                <h2 className="font-heading text-lg text-foreground tracking-wider uppercase mb-2">
+                  Link Your Accounts
+                </h2>
+                <p className="text-foreground/60 text-sm">
+                  {linkStep === "discord"
+                    ? "Your GitHub is linked. Please link Discord to continue."
+                    : "Please link your GitHub and Discord accounts to continue."}
+                </p>
+              </div>
+
+              {(linkStep === "both" || linkStep === "github") && (
+                <button
+                  type="button"
+                  onClick={linkGithub}
+                  disabled={linkingLoading}
+                  className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
                 >
                   {linkingLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                   ) : (
-                    <Check className="w-4 h-4" aria-hidden="true" />
+                    <SiGithub className="w-5 h-5" aria-hidden="true" />
                   )}
-                  {githubUsername ? "Link Discord & Continue" : "Link Accounts & Continue"}
+                  <span className="font-medium">Link GitHub</span>
                 </button>
-              </form>
+              )}
+
+              {(linkStep === "both" || linkStep === "discord") && (
+                <button
+                  type="button"
+                  onClick={linkDiscord}
+                  disabled={linkingLoading}
+                  className="w-full py-3 bg-background border border-border text-foreground rounded-xl hover:bg-border/50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-3"
+                >
+                  {linkingLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <SiDiscord className="w-5 h-5" aria-hidden="true" />
+                  )}
+                  <span className="font-medium">Link Discord</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleContinueAfterLinking}
+                className="w-full py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 transition-all duration-150 active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Check className="w-4 h-4" aria-hidden="true" />
+                Continue
+              </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         <p className="mt-6 text-center text-xs text-foreground/40">
           {role === "organizer"
             ? "Organizers can create and manage hackathons."
             : "By signing in, you agree to participate in the hackathon."}
-          <br />
-          {role === "participant" && "After signing up, you can register for an open hackathon."}
         </p>
       </div>
     </div>

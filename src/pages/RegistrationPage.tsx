@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../hooks/useAuth";
-import { getLinkedAccountUsernames, hasLinkedAccounts } from "../lib/linkedAccounts";
+import { getLinkedAccountUsernames } from "../lib/linkedAccounts";
 import type { Tables } from "../lib/database.types";
 import {
   Loader2,
@@ -56,30 +56,25 @@ export default function RegistrationPage() {
   const [newTeamName, setNewTeamName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-
   const [existingRegistration, setExistingRegistration] = useState<{
     participant: Tables<"participants">;
     hackathon: Tables<"hackathons">;
     team: Tables<"teams"> | null;
   } | null>(null);
   const [loadingExisting, setLoadingExisting] = useState(true);
-  const [confirmingUnregister, setConfirmingUnregister] = useState(false);
-  const [confirmingLeaveTeam, setConfirmingLeaveTeam] = useState(false);
   const [teamWasCreated, setTeamWasCreated] = useState(false);
   const [teamLeadGithubPat, setTeamLeadGithubPat] = useState("");
 
   useEffect(() => {
     if (auth.status === "loading") return;
+    if (auth.status !== "authenticated") return;
 
-    if (auth.status === "authenticated") {
-      const { githubUsername: gh, discordUsername: dc } = getLinkedAccountUsernames(auth.user);
+    const { githubUsername: gh, discordUsername: dc } = getLinkedAccountUsernames(auth.user);
+    if (gh) setGithubUsername(gh);
+    if (dc) setDiscordUsername(dc);
 
-      if (gh) setGithubUsername(gh);
-      if (dc) setDiscordUsername(dc);
-
-      setChosenRole(auth.role === "organizer" ? "organizer" : "participant");
-      setStep(auth.role === "unknown" ? "role" : "hackathon");
-    }
+    setChosenRole(auth.role === "organizer" ? "organizer" : "participant");
+    setStep("hackathon");
   }, [auth.status, auth.user, auth.role]);
 
   useEffect(() => {
@@ -236,52 +231,6 @@ export default function RegistrationPage() {
     navigate("/", { replace: true });
   }, [navigate]);
 
-  const handleUnregister = useCallback(async () => {
-    if (!existingRegistration) return;
-
-    setSubmitting(true);
-    setError(null);
-
-    const { error: deleteError } = await supabase
-      .from("participants")
-      .delete()
-      .eq("id", existingRegistration.participant.id);
-
-    if (deleteError) {
-      setError("Couldn't un-register. Please try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    setExistingRegistration(null);
-    setConfirmingUnregister(false);
-    setSubmitting(false);
-  }, [existingRegistration]);
-
-  const handleLeaveTeam = useCallback(async () => {
-    if (!existingRegistration) return;
-
-    setSubmitting(true);
-    setError(null);
-
-    const { error: updateError } = await supabase
-      .from("participants")
-      .update({ team_id: null })
-      .eq("id", existingRegistration.participant.id);
-
-    if (updateError) {
-      setError("Couldn't leave the team. Please try again.");
-      setSubmitting(false);
-      return;
-    }
-
-    setExistingRegistration((prev) =>
-      prev ? { ...prev, participant: { ...prev.participant, team_id: null }, team: null } : null
-    );
-    setConfirmingLeaveTeam(false);
-    setSubmitting(false);
-  }, [existingRegistration]);
-
   const handleSubmit = useCallback(async () => {
     if (!selectedHackathon) return;
 
@@ -305,21 +254,16 @@ export default function RegistrationPage() {
       if (chosenRole === "organizer") {
         const { data: organizer, error: orgError } = await supabase
           .from("organizers")
-          .upsert(
-            { auth_user_id: userId, email },
-            { onConflict: "auth_user_id" }
-          )
+          .upsert({ auth_user_id: userId, email }, { onConflict: "auth_user_id" })
           .select("id")
           .single();
 
         if (orgError) throw new Error(orgError.message);
 
-        const { error: linkError } = await supabase
-          .from("organizer_hackathons")
-          .insert({
-            organizer_id: organizer.id,
-            hackathon_id: selectedHackathon.id,
-          });
+        const { error: linkError } = await supabase.from("organizer_hackathons").insert({
+          organizer_id: organizer.id,
+          hackathon_id: selectedHackathon.id,
+        });
 
         if (linkError && !linkError.message.includes("duplicate")) {
           throw new Error(linkError.message);
@@ -363,10 +307,7 @@ export default function RegistrationPage() {
         if (participantError) throw new Error(participantError.message);
 
         if (teamWasCreated && participantData?.id) {
-          await supabase
-            .from("teams")
-            .update({ created_by: participantData.id })
-            .eq("id", selectedTeam.id);
+          await supabase.from("teams").update({ created_by: participantData.id }).eq("id", selectedTeam.id);
         }
 
         const {
@@ -374,18 +315,15 @@ export default function RegistrationPage() {
         } = await supabase.auth.getSession();
 
         if (currentSession?.access_token) {
-          const { error: infraError } = await supabase.functions.invoke(
-            "create-team-infrastructure",
-            {
-              body: {
-                team_id: selectedTeam.id,
-                ...(teamWasCreated && teamLeadGithubPat.trim()
-                  ? { github_pat: teamLeadGithubPat.trim() }
-                  : {}),
-              },
-              headers: { Authorization: `Bearer ${currentSession.access_token}` },
-            }
-          );
+          const { error: infraError } = await supabase.functions.invoke("create-team-infrastructure", {
+            body: {
+              team_id: selectedTeam.id,
+              ...(teamWasCreated && teamLeadGithubPat.trim()
+                ? { github_pat: teamLeadGithubPat.trim() }
+                : {}),
+            },
+            headers: { Authorization: `Bearer ${currentSession.access_token}` },
+          });
 
           if (infraError) {
             console.error("Team infrastructure provisioning failed:", infraError);
@@ -398,17 +336,14 @@ export default function RegistrationPage() {
           } = await supabase.auth.getSession();
 
           if (currentSession?.access_token) {
-            const { error: addError } = await supabase.functions.invoke(
-              "add-participant-to-discord",
-              {
-                body: {
-                  team_id: selectedTeam.id,
-                  participant_id: participantData?.id,
-                  discord_username: dcUsername,
-                },
-                headers: { Authorization: `Bearer ${currentSession.access_token}` },
-              }
-            );
+            const { error: addError } = await supabase.functions.invoke("add-participant-to-discord", {
+              body: {
+                team_id: selectedTeam.id,
+                participant_id: participantData?.id,
+                discord_username: dcUsername,
+              },
+              headers: { Authorization: `Bearer ${currentSession.access_token}` },
+            });
 
             if (addError) {
               console.error("Failed to add participant to Discord channel:", addError);
@@ -444,7 +379,7 @@ export default function RegistrationPage() {
     return () => clearTimeout(timer);
   }, [step, chosenRole, navigate]);
 
-  if (auth.status === "loading") {
+  if (auth.status === "loading" || loadingExisting) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-accent animate-spin" />
@@ -452,8 +387,8 @@ export default function RegistrationPage() {
     );
   }
 
-  if (auth.status === "unauthenticated") {
-    return <Navigate to="/" replace />;
+  if (auth.status !== "authenticated") {
+    return <Navigate to="/auth" replace />;
   }
 
   return (
@@ -545,9 +480,7 @@ export default function RegistrationPage() {
                 <Trophy className="w-4 h-4 text-accent" aria-hidden="true" />
               </div>
               <p className="text-foreground/70 text-sm">
-                {chosenRole === "organizer"
-                  ? "Select a hackathon to organize"
-                  : "Select a hackathon to join"}
+                {chosenRole === "organizer" ? "Select a hackathon to organize" : "Select a hackathon to join"}
               </p>
             </div>
 
@@ -667,9 +600,7 @@ export default function RegistrationPage() {
                       </div>
                       <span className="text-sm text-foreground font-medium">{team.name}</span>
                     </div>
-                    {selectedTeam?.id === team.id && (
-                      <Check className="w-5 h-5 text-accent" aria-hidden="true" />
-                    )}
+                    {selectedTeam?.id === team.id && <Check className="w-5 h-5 text-accent" aria-hidden="true" />}
                   </button>
                 ))}
               </div>
@@ -697,11 +628,7 @@ export default function RegistrationPage() {
                   disabled={submitting || !newTeamName.trim()}
                   className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent text-white text-sm font-medium hover:bg-accent/90 active:scale-[0.97] transition-all duration-150 disabled:opacity-50 cursor-pointer"
                 >
-                  {submitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  ) : (
-                    <UserPlus className="w-4 h-4" aria-hidden="true" />
-                  )}
+                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" /> : <UserPlus className="w-4 h-4" aria-hidden="true" />}
                   Create
                 </button>
               </div>
@@ -753,24 +680,16 @@ export default function RegistrationPage() {
             <div className="space-y-3 mb-6">
               <div className="flex items-center justify-between py-2 border-b border-border/40">
                 <span className="text-xs text-foreground/50 uppercase tracking-wider">Role</span>
-                <span className="text-sm text-foreground font-medium capitalize">
-                  {chosenRole}
-                </span>
+                <span className="text-sm text-foreground font-medium capitalize">{chosenRole}</span>
               </div>
               <div className="flex items-center justify-between py-2 border-b border-border/40">
-                <span className="text-xs text-foreground/50 uppercase tracking-wider">
-                  Hackathon
-                </span>
-                <span className="text-sm text-foreground font-medium">
-                  {selectedHackathon.name}
-                </span>
+                <span className="text-xs text-foreground/50 uppercase tracking-wider">Hackathon</span>
+                <span className="text-sm text-foreground font-medium">{selectedHackathon.name}</span>
               </div>
               {chosenRole === "participant" && selectedTeam && (
                 <div className="flex items-center justify-between py-2 border-b border-border/40">
                   <span className="text-xs text-foreground/50 uppercase tracking-wider">Team</span>
-                  <span className="text-sm text-foreground font-medium">
-                    {selectedTeam.name}
-                  </span>
+                  <span className="text-sm text-foreground font-medium">{selectedTeam.name}</span>
                 </div>
               )}
             </div>
