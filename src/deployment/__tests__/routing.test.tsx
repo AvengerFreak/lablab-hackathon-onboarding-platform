@@ -76,7 +76,7 @@ describe("deployment routing safeguards", () => {
 
     renderApp(["/"]);
 
-    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
   });
 
   it("redirects authenticated participants to the wizard from the landing route", () => {
@@ -88,7 +88,7 @@ describe("deployment routing safeguards", () => {
 
     renderApp(["/"]);
 
-    expect(screen.getByTestId("app-layout")).toBeInTheDocument();
+    expect(screen.getByTestId("wizard-page")).toBeInTheDocument();
   });
 
   it("routes unknown-role users to registration", () => {

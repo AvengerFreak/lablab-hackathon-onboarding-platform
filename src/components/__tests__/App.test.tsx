@@ -111,15 +111,15 @@ describe("App - Routing", () => {
     expect(screen.getByTestId("dashboard-page")).toBeInTheDocument();
   });
 
-  it("redirects to registration page when role is unknown at /", () => {
-    mockUseAuth.mockReturnValue({
-      status: "authenticated",
-      user: { id: "user-1" },
-      role: "unknown",
-    });
+  it("shows auth page when role is unknown at /", () => {
+  mockUseAuth.mockReturnValue({
+    status: "authenticated",
+    user: { id: "user-1" },
+    role: "unknown",
+  });
 
-    renderApp();
+  renderApp();
 
-    expect(screen.getByTestId("registration-page")).toBeInTheDocument();
+  expect(screen.getByTestId("auth-page")).toBeInTheDocument();
   });
 });
