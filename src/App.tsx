@@ -5,7 +5,6 @@ import AppLayout from "./components/AppLayout";
 import DashboardPlaceholder from "./pages/DashboardPlaceholder";
 import WizardPlaceholder from "./pages/WizardPlaceholder";
 import HackathonsPlaceholder from "./pages/HackathonsPlaceholder";
-import RegistrationPage from "./pages/RegistrationPage";
 import { Loader2 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import ChatWidget from "./components/ChatWidget";
@@ -21,7 +20,11 @@ function ProtectedRoute({
 
   if (auth.status === "loading") {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading auth state">
+      <div
+        className="min-h-screen bg-background flex items-center justify-center"
+        role="status"
+        aria-label="Loading auth state"
+      >
         <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
       </div>
     );
@@ -34,7 +37,7 @@ function ProtectedRoute({
   if (allowedRole && auth.role !== allowedRole) {
     if (auth.role === "organizer") return <Navigate to="/dashboard" replace />;
     if (auth.role === "participant") return <Navigate to="/wizard" replace />;
-    return <Navigate to="/register" replace />;
+    return <Navigate to="/" replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;
@@ -86,12 +89,16 @@ export default function App() {
               ) : auth.role === "participant" ? (
                 <Navigate to="/wizard" replace />
               ) : (
-                <Navigate to="/register" replace />
+                <Auth />
               )
             ) : auth.status === "unauthenticated" ? (
               <Auth />
             ) : (
-              <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading app">
+              <div
+                className="min-h-screen bg-background flex items-center justify-center"
+                role="status"
+                aria-label="Loading app"
+              >
                 <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
               </div>
             )
@@ -102,17 +109,21 @@ export default function App() {
           path="/register"
           element={
             auth.status === "loading" ? (
-              <div className="min-h-screen bg-background flex items-center justify-center" role="status" aria-label="Loading app">
+              <div
+                className="min-h-screen bg-background flex items-center justify-center"
+                role="status"
+                aria-label="Loading app"
+              >
                 <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
               </div>
-            ) : auth.status === "unauthenticated" ? (
+            ) : auth.status !== "authenticated" ? (
               <Navigate to="/" replace />
-            ) : auth.role === "unknown" ? (
-              <RegistrationPage />
             ) : auth.role === "organizer" ? (
               <Navigate to="/dashboard" replace />
-            ) : (
+            ) : auth.role === "participant" ? (
               <Navigate to="/wizard" replace />
+            ) : (
+              <Navigate to="/" replace />
             )
           }
         />
