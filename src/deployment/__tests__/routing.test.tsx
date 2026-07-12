@@ -46,6 +46,13 @@ vi.mock("../../lib/supabase", () => ({
   },
 }));
 
+let App: React.ComponentType;
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  App = (await import("../../App")).default;
+});
+
 function renderApp(initialEntries: string[] = ["/"]) {
   return render(
     <MemoryRouter initialEntries={initialEntries}>
@@ -53,13 +60,6 @@ function renderApp(initialEntries: string[] = ["/"]) {
     </MemoryRouter>,
   );
 }
-
-let App: React.ComponentType;
-
-beforeEach(async () => {
-  vi.clearAllMocks();
-  App = (await import("../../App")).default;
-});
 
 describe("deployment routing safeguards", () => {
   it("shows the auth screen for unauthenticated users", () => {
@@ -94,7 +94,7 @@ describe("deployment routing safeguards", () => {
     expect(screen.getByTestId("wizard-page")).toBeInTheDocument();
   });
 
-  it("routes unknown-role users to registration", () => {
+  it("routes unknown-role users to auth instead of registration", () => {
     mockUseAuth.mockReturnValue({
       status: "authenticated",
       user: { id: "user-2" },
@@ -103,6 +103,7 @@ describe("deployment routing safeguards", () => {
 
     renderApp(["/"]);
 
-    expect(screen.getByTestId("registration-page")).toBeInTheDocument();
+    expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("registration-page")).not.toBeInTheDocument();
   });
 });
