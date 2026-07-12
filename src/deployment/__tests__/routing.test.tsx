@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Outlet } from "react-router-dom";
 import type { ReactNode } from "react";
 
 const mockUseAuth = vi.fn();
@@ -15,7 +15,10 @@ vi.mock("../../components/Auth", () => ({
 
 vi.mock("../../components/AppLayout", () => ({
   default: ({ children }: { children?: ReactNode }) => (
-    <div data-testid="app-layout">{children}</div>
+    <div data-testid="app-layout">
+      <Outlet />
+      {children}
+    </div>
   ),
 }));
 
