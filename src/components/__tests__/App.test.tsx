@@ -28,7 +28,11 @@ vi.mock("../../pages/WizardPlaceholder", () => ({
   default: () => <div data-testid="wizard-page">Wizard</div>,
 }));
 vi.mock("../../pages/HackathonsPlaceholder", () => ({
-  default: () => <div data-testid="hackathons-page">Hackathons</div>,
+  default: () => <div data-testid="hackathons-management-page">Hackathons Management</div>,
+}));
+
+vi.mock("../../pages/HackathonsDashboard", () => ({
+  default: () => <div data-testid="hackathons-dashboard-page">Hackathons Dashboard</div>,
 }));
 vi.mock("../../pages/RegistrationPage", () => ({
   default: () => <div data-testid="registration-page">Registration</div>,
@@ -87,7 +91,7 @@ describe("App - Routing", () => {
     expect(spinners.length).toBeGreaterThan(0);
   });
 
-  it("redirects participant to /wizard at /", () => {
+  it("redirects participant to /hackathons at /", () => {
     mockUseAuth.mockReturnValue({
       status: "authenticated",
       user: { id: "user-1" },
@@ -96,7 +100,7 @@ describe("App - Routing", () => {
 
     renderApp();
 
-    expect(screen.getByTestId("wizard-page")).toBeInTheDocument();
+    expect(screen.getByTestId("hackathons-dashboard-page")).toBeInTheDocument();
   });
 
   it("redirects organizer to /dashboard at /", () => {
