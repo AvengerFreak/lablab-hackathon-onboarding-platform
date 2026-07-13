@@ -19,63 +19,80 @@ export default function Auth() {
   const [linkingLoading, setLinkingLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [linkStep, setLinkStep] = useState<LinkStep>("none");
+  const [hasCheckedSession, setHasCheckedSession] = useState(false);
 
   useEffect(() => {
     setMessage(null);
   }, [view, role]);
 
   useEffect(() => {
+    if (hasCheckedSession) return;
+
     async function checkSession() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session?.user) return;
+      try {
+        const sessionResult = await supabase.auth.getSession();
+        if (!sessionResult?.data?.session?.user) {
+          setHasCheckedSession(true);
+          return;
+        }
 
-      const {
-        data: identities,
-        error,
-      } = await supabase.auth.getUserIdentities();
+        const {
+          data: identities,
+          error,
+        } = await supabase.auth.getUserIdentities();
 
-      if (error) return;
+        if (error) {
+          setHasCheckedSession(true);
+          return;
+        }
 
-      const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
-      const hasGithub = providers.has("github");
-      const hasDiscord = providers.has("discord");
+        const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
+        const hasGithub = providers.has("github");
+        const hasDiscord = providers.has("discord");
 
-      if (hasGithub && hasDiscord) {
-        // Check if user has a role determined
-        const { data: organizer } = await supabase
-          .from("organizers")
-          .select("id")
-          .eq("auth_user_id", session.user.id)
-          .maybeSingle();
+        if (hasGithub && hasDiscord) {
+          // Check if user has a role determined
+          const { data: organizer } = await supabase
+            .from("organizers")
+            .select("id")
+            .eq("auth_user_id", sessionResult.data.session.user.id)
+            .maybeSingle();
 
-        if (organizer) {
-          navigate("/dashboard", { replace: true });
+          setHasCheckedSession(true);
+
+          if (organizer) {
+            navigate("/dashboard", { replace: true });
+            return;
+          }
+
+          navigate("/hackathons", { replace: true });
+          return;
+        }
+
+        setHasCheckedSession(true);
+
+        if (hasGithub && !hasDiscord) {
+          setView("link_accounts");
+          setLinkStep("discord");
+          return;
+        }
+
+        if (!hasGithub && !hasDiscord) {
+          setView("link_accounts");
+          setLinkStep("both");
           return;
         }
 
         navigate("/hackathons", { replace: true });
-        return;
+      } catch (error) {
+        console.error("Error checking session:", error);
+        setHasCheckedSession(true);
+        // Don't redirect on error, just stay on auth page
       }
-
-      if (hasGithub && !hasDiscord) {
-        setView("link_accounts");
-        setLinkStep("discord");
-        return;
-      }
-
-      if (!hasGithub && !hasDiscord) {
-        setView("link_accounts");
-        setLinkStep("both");
-        return;
-      }
-
-      navigate("/hackathons", { replace: true });
     }
 
     checkSession();
-  }, [navigate]);
+  }, [navigate, hasCheckedSession]);
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
