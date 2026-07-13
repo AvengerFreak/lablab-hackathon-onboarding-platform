@@ -1,12 +1,12 @@
-import { Routes, Route, Navigate, useNavigate, Outlet } from "react-router-dom";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import Auth from "./components/Auth";
 import AppLayout from "./components/AppLayout";
 import DashboardPlaceholder from "./pages/DashboardPlaceholder";
 import WizardPlaceholder from "./pages/WizardPlaceholder";
 import HackathonsPlaceholder from "./pages/HackathonsPlaceholder";
+import HackathonsDashboard from "./pages/HackathonsDashboard";
 import { Loader2 } from "lucide-react";
-import { supabase } from "./lib/supabase";
 import ChatWidget from "./components/ChatWidget";
 
 function ProtectedRoute({
@@ -43,36 +43,6 @@ function ProtectedRoute({
   return children ? <>{children}</> : <Outlet />;
 }
 
-function NoAccess({ userEmail }: { userEmail?: string }) {
-  const navigate = useNavigate();
-  return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="max-w-sm text-center">
-        <button
-          onClick={() => navigate("/")}
-          className="w-16 h-16 mx-auto mb-4 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center cursor-pointer hover:bg-accent/20 transition-all active:scale-95"
-          aria-label="Go to home"
-        >
-          <span className="text-accent font-heading text-2xl">LL</span>
-        </button>
-        <h1 className="font-heading text-2xl text-foreground mb-2">Signed In</h1>
-        <p className="text-foreground/60 mb-2">
-          Your account <strong className="text-foreground">{userEmail}</strong> has been verified,
-          but you haven't been invited to a hackathon yet.
-        </p>
-        <p className="text-foreground/50 text-sm mb-6">
-          Contact your organizer to get access. If you believe this is a mistake, try signing out and signing in again.
-        </p>
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="px-6 py-3 bg-accent text-black font-semibold rounded-xl hover:opacity-90 transition-all duration-150 active:scale-[0.98] cursor-pointer"
-        >
-          Sign Out
-        </button>
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const auth = useAuth();
@@ -87,7 +57,7 @@ export default function App() {
               auth.role === "organizer" ? (
                 <Navigate to="/dashboard" replace />
               ) : auth.role === "participant" ? (
-                <Navigate to="/wizard" replace />
+                <Navigate to="/hackathons" replace />
               ) : (
                 <Auth />
               )
@@ -121,9 +91,28 @@ export default function App() {
             ) : auth.role === "organizer" ? (
               <Navigate to="/dashboard" replace />
             ) : auth.role === "participant" ? (
-              <Navigate to="/wizard" replace />
+              <Navigate to="/hackathons" replace />
             ) : (
               <Navigate to="/" replace />
+            )
+          }
+        />
+
+        <Route
+          path="/hackathons"
+          element={
+            auth.status === "loading" ? (
+              <div
+                className="min-h-screen bg-background flex items-center justify-center"
+                role="status"
+                aria-label="Loading app"
+              >
+                <Loader2 className="w-6 h-6 text-accent animate-spin" aria-hidden="true" />
+              </div>
+            ) : auth.status !== "authenticated" ? (
+              <Navigate to="/" replace />
+            ) : (
+              <HackathonsDashboard />
             )
           }
         />
@@ -144,7 +133,7 @@ export default function App() {
             }
           />
           <Route
-            path="/hackathons"
+            path="/hackathons-management"
             element={
               <ProtectedRoute allowedRole="organizer">
                 <HackathonsPlaceholder />

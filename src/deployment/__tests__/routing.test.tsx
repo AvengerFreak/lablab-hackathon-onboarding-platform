@@ -31,7 +31,11 @@ vi.mock("../../pages/WizardPlaceholder", () => ({
 }));
 
 vi.mock("../../pages/HackathonsPlaceholder", () => ({
-  default: () => <div data-testid="hackathons-page">Hackathons</div>,
+  default: () => <div data-testid="hackathons-management-page">Hackathons Management</div>,
+}));
+
+vi.mock("../../pages/HackathonsDashboard", () => ({
+  default: () => <div data-testid="hackathons-dashboard-page">Hackathons Dashboard</div>,
 }));
 
 vi.mock("../../pages/RegistrationPage", () => ({
@@ -84,7 +88,7 @@ describe("deployment routing safeguards", () => {
     expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
   });
 
-  it("redirects authenticated participants to the wizard from the landing route", () => {
+  it("redirects authenticated participants to the hackathons dashboard from the landing route", () => {
     mockUseAuth.mockReturnValue({
       status: "authenticated",
       user: { id: "user-1" },
@@ -93,8 +97,9 @@ describe("deployment routing safeguards", () => {
 
     renderApp(["/"]);
 
-    expect(screen.getByTestId("wizard-page")).toBeInTheDocument();
+    expect(screen.getByTestId("hackathons-dashboard-page")).toBeInTheDocument();
     expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("wizard-page")).not.toBeInTheDocument();
   });
 
   it("routes unknown-role users to auth instead of registration", () => {
@@ -110,5 +115,40 @@ describe("deployment routing safeguards", () => {
     expect(screen.queryByTestId("registration-page")).not.toBeInTheDocument();
     expect(screen.queryByTestId("wizard-page")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dashboard-page")).not.toBeInTheDocument();
+  });
+
+  it("shows hackathons dashboard for authenticated participants on /hackathons route", () => {
+    mockUseAuth.mockReturnValue({
+      status: "authenticated",
+      user: { id: "user-1" },
+      role: "participant",
+    });
+
+    renderApp(["/hackathons"]);
+
+    expect(screen.getByTestId("hackathons-dashboard-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
+  });
+
+  it("shows hackathons dashboard for authenticated organizers on /hackathons route", () => {
+    mockUseAuth.mockReturnValue({
+      status: "authenticated",
+      user: { id: "org-1" },
+      role: "organizer",
+    });
+
+    renderApp(["/hackathons"]);
+
+    expect(screen.getByTestId("hackathons-dashboard-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("auth-page")).not.toBeInTheDocument();
+  });
+
+  it("redirects unauthenticated users to auth on /hackathons route", () => {
+    mockUseAuth.mockReturnValue({ status: "unauthenticated" });
+
+    renderApp(["/hackathons"]);
+
+    expect(screen.getByTestId("auth-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("hackathons-dashboard-page")).not.toBeInTheDocument();
   });
 });

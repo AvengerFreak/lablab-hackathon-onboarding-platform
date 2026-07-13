@@ -43,6 +43,18 @@ export default function Auth() {
       const hasDiscord = providers.has("discord");
 
       if (hasGithub && hasDiscord) {
+        // Check if user has a role determined
+        const { data: organizer } = await supabase
+          .from("organizers")
+          .select("id")
+          .eq("auth_user_id", session.user.id)
+          .maybeSingle();
+
+        if (organizer) {
+          navigate("/dashboard", { replace: true });
+          return;
+        }
+
         navigate("/hackathons", { replace: true });
         return;
       }
@@ -106,7 +118,7 @@ export default function Auth() {
 
     if (role === "organizer" && data.user) {
       await supabase.from("organizers").upsert(
-        { auth_user_id: data.user.id, email: data.user.email },
+        { auth_user_id: data.user.id, email: data.user.email ?? "" },
         { onConflict: "auth_user_id" }
       );
       navigate("/dashboard", { replace: true });
@@ -119,7 +131,7 @@ export default function Auth() {
       setLinkStep(!hasGithub && !hasDiscord ? "both" : !hasGithub ? "github" : "discord");
       setMessage({
         type: "success",
-        text: "Account created. Please link your GitHub and Discord accounts to continue.",
+        text: "Signed in successfully. Please link your GitHub and Discord accounts to continue.",
       });
       setLoading(false);
       return;
@@ -165,7 +177,7 @@ export default function Auth() {
     if (data?.user && data?.session) {
       if (role === "organizer") {
         await supabase.from("organizers").upsert(
-          { auth_user_id: data.user.id, email: data.user.email },
+          { auth_user_id: data.user.id, email: data.user.email ?? "" },
           { onConflict: "auth_user_id" }
         );
         navigate("/dashboard", { replace: true });
