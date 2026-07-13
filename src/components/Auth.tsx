@@ -29,19 +29,28 @@ export default function Auth() {
     if (hasCheckedSession) return;
 
     async function checkSession() {
+      console.log("[Auth] Checking existing session...");
       try {
         const sessionResult = await supabase.auth.getSession();
+        console.log("[Auth] Session check result:", sessionResult);
+
         if (!sessionResult?.data?.session?.user) {
+          console.log("[Auth] No active session found");
           setHasCheckedSession(true);
           return;
         }
+
+        console.log("[Auth] Active session found for user:", sessionResult.data.session.user.id);
 
         const {
           data: identities,
           error,
         } = await supabase.auth.getUserIdentities();
 
+        console.log("[Auth] User identities result:", { identities, error });
+
         if (error) {
+          console.error("[Auth] Error getting user identities:", error);
           setHasCheckedSession(true);
           return;
         }
@@ -50,21 +59,28 @@ export default function Auth() {
         const hasGithub = providers.has("github");
         const hasDiscord = providers.has("discord");
 
+        console.log("[Auth] Linked providers:", { hasGithub, hasDiscord, allProviders: Array.from(providers) });
+
         if (hasGithub && hasDiscord) {
+          console.log("[Auth] Both GitHub and Discord linked, checking user role...");
           // Check if user has a role determined
-          const { data: organizer } = await supabase
+          const { data: organizer, error: orgError } = await supabase
             .from("organizers")
             .select("id")
             .eq("auth_user_id", sessionResult.data.session.user.id)
             .maybeSingle();
 
+          console.log("[Auth] Organizer check result:", { organizer, orgError });
+
           setHasCheckedSession(true);
 
           if (organizer) {
+            console.log("[Auth] User is an organizer, redirecting to dashboard");
             navigate("/dashboard", { replace: true });
             return;
           }
 
+          console.log("[Auth] User is a participant, redirecting to hackathons");
           navigate("/hackathons", { replace: true });
           return;
         }
@@ -72,20 +88,23 @@ export default function Auth() {
         setHasCheckedSession(true);
 
         if (hasGithub && !hasDiscord) {
+          console.log("[Auth] GitHub linked but Discord missing, showing link accounts view");
           setView("link_accounts");
           setLinkStep("discord");
           return;
         }
 
         if (!hasGithub && !hasDiscord) {
+          console.log("[Auth] Neither GitHub nor Discord linked, showing link accounts view");
           setView("link_accounts");
           setLinkStep("both");
           return;
         }
 
+        console.log("[Auth] Unexpected provider state, redirecting to hackathons");
         navigate("/hackathons", { replace: true });
       } catch (error) {
-        console.error("Error checking session:", error);
+        console.error("[Auth] Error checking session:", error);
         setHasCheckedSession(true);
         // Don't redirect on error, just stay on auth page
       }
@@ -96,66 +115,87 @@ export default function Auth() {
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
+    console.log("[Auth] Sign in attempt with email:", email.trim(), "role:", role);
     if (!email.trim() || !password) return;
 
     setLoading(true);
     setMessage(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-
-    if (error) {
-      setMessage({
-        type: "error",
-        text:
-          error.message === "Invalid login credentials"
-            ? "Wrong email or password. Try again."
-            : error.message,
+    try {
+      console.log("[Auth] Calling supabase.auth.signInWithPassword");
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
       });
+
+      console.log("[Auth] Sign in result:", { error, user: data?.user?.id });
+
+      if (error) {
+        console.error("[Auth] Sign in error:", error);
+        setMessage({
+          type: "error",
+          text:
+            error.message === "Invalid login credentials"
+              ? "Wrong email or password. Try again."
+              : error.message,
+        });
+        setLoading(false);
+        return;
+      }
+
+      console.log("[Auth] Sign in successful, checking user identities...");
+      const {
+        data: identities,
+        error: identitiesError,
+      } = await supabase.auth.getUserIdentities();
+
+      console.log("[Auth] User identities:", { identities, identitiesError });
+
+      if (identitiesError) {
+        console.error("[Auth] Error getting identities:", identitiesError);
+        setMessage({ type: "error", text: identitiesError.message });
+        setLoading(false);
+        return;
+      }
+
+      const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
+      const hasGithub = providers.has("github");
+      const hasDiscord = providers.has("discord");
+
+      console.log("[Auth] Linked providers:", { hasGithub, hasDiscord });
+
+      if (role === "organizer" && data.user) {
+        console.log("[Auth] Organizer role, upserting organizer record");
+        await supabase.from("organizers").upsert(
+          { auth_user_id: data.user.id, email: data.user.email ?? "" },
+          { onConflict: "auth_user_id" }
+        );
+        console.log("[Auth] Redirecting to dashboard");
+        navigate("/dashboard", { replace: true });
+        setLoading(false);
+        return;
+      }
+
+      if (!hasGithub || !hasDiscord) {
+        console.log("[Auth] Missing linked accounts, showing link view");
+        setView("link_accounts");
+        setLinkStep(!hasGithub && !hasDiscord ? "both" : !hasGithub ? "github" : "discord");
+        setMessage({
+          type: "success",
+          text: "Signed in successfully. Please link your GitHub and Discord accounts to continue.",
+        });
+        setLoading(false);
+        return;
+      }
+
+      console.log("[Auth] All accounts linked, redirecting to hackathons");
+      navigate("/hackathons", { replace: true });
       setLoading(false);
-      return;
-    }
-
-    const {
-      data: identities,
-      error: identitiesError,
-    } = await supabase.auth.getUserIdentities();
-
-    if (identitiesError) {
-      setMessage({ type: "error", text: identitiesError.message });
+    } catch (err) {
+      console.error("[Auth] Unexpected error during sign in:", err);
+      setMessage({ type: "error", text: "An unexpected error occurred during sign in" });
       setLoading(false);
-      return;
     }
-
-    const providers = new Set((identities?.identities ?? []).map((i) => i.provider));
-    const hasGithub = providers.has("github");
-    const hasDiscord = providers.has("discord");
-
-    if (role === "organizer" && data.user) {
-      await supabase.from("organizers").upsert(
-        { auth_user_id: data.user.id, email: data.user.email ?? "" },
-        { onConflict: "auth_user_id" }
-      );
-      navigate("/dashboard", { replace: true });
-      setLoading(false);
-      return;
-    }
-
-    if (!hasGithub || !hasDiscord) {
-      setView("link_accounts");
-      setLinkStep(!hasGithub && !hasDiscord ? "both" : !hasGithub ? "github" : "discord");
-      setMessage({
-        type: "success",
-        text: "Signed in successfully. Please link your GitHub and Discord accounts to continue.",
-      });
-      setLoading(false);
-      return;
-    }
-
-    navigate("/hackathons", { replace: true });
-    setLoading(false);
   }
 
   async function handleSignUp(e: React.FormEvent) {
@@ -214,37 +254,61 @@ export default function Auth() {
   }
 
   async function linkGithub() {
+    console.log("[Auth] Starting GitHub OAuth link process");
     setLinkingLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.linkIdentity({
-      provider: "github",
-    });
+    try {
+      console.log("[Auth] Calling supabase.auth.linkIdentity with provider: github");
+      const { error, data } = await supabase.auth.linkIdentity({
+        provider: "github",
+      });
 
-    if (error) {
-      setMessage({ type: "error", text: error.message });
+      console.log("[Auth] GitHub linkIdentity response:", { error, data });
+
+      if (error) {
+        console.error("[Auth] GitHub linkIdentity error:", error);
+        setMessage({ type: "error", text: error.message });
+        setLinkingLoading(false);
+        return;
+      }
+
+      console.log("[Auth] GitHub OAuth link initiated successfully");
       setLinkingLoading(false);
-      return;
+    } catch (err) {
+      console.error("[Auth] Unexpected error during GitHub OAuth link:", err);
+      setMessage({ type: "error", text: "An unexpected error occurred during GitHub linking" });
+      setLinkingLoading(false);
     }
-
-    setLinkingLoading(false);
   }
 
   async function linkDiscord() {
+    console.log("[Auth] Starting Discord OAuth link process");
     setLinkingLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.linkIdentity({
-      provider: "discord",
-    });
+    try {
+      console.log("[Auth] Calling supabase.auth.linkIdentity with provider: discord");
+      const { error, data } = await supabase.auth.linkIdentity({
+        provider: "discord",
+      });
 
-    if (error) {
-      setMessage({ type: "error", text: error.message });
+      console.log("[Auth] Discord linkIdentity response:", { error, data });
+
+      if (error) {
+        console.error("[Auth] Discord linkIdentity error:", error);
+        setMessage({ type: "error", text: error.message });
+        setLinkingLoading(false);
+        return;
+      }
+
+      console.log("[Auth] Discord OAuth link initiated successfully");
       setLinkingLoading(false);
-      return;
+    } catch (err) {
+      console.error("[Auth] Unexpected error during Discord OAuth link:", err);
+      setMessage({ type: "error", text: "An unexpected error occurred during Discord linking" });
+      setLinkingLoading(false);
     }
-
-    setLinkingLoading(false);
   }
 
   async function handleContinueAfterLinking() {
