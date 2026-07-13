@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">50.66% </span>
+                <span class="strong">50.33% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>76/150</span>
+                <span class='fraction'>76/151</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">63.2% </span>
+                <span class="strong">62.61% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>134/212</span>
+                <span class='fraction'>134/214</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">51.93% </span>
+                <span class="strong">51.53% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>67/129</span>
+                <span class='fraction'>67/130</span>
             </div>
         
             
@@ -977,7 +977,15 @@
 <a name='L912'></a><a href='#L912'>912</a>
 <a name='L913'></a><a href='#L913'>913</a>
 <a name='L914'></a><a href='#L914'>914</a>
-<a name='L915'></a><a href='#L915'>915</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L915'></a><a href='#L915'>915</a>
+<a name='L916'></a><a href='#L916'>916</a>
+<a name='L917'></a><a href='#L917'>917</a>
+<a name='L918'></a><a href='#L918'>918</a>
+<a name='L919'></a><a href='#L919'>919</a>
+<a name='L920'></a><a href='#L920'>920</a>
+<a name='L921'></a><a href='#L921'>921</a>
+<a name='L922'></a><a href='#L922'>922</a>
+<a name='L923'></a><a href='#L923'>923</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1489,7 +1497,15 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1993,7 +2009,7 @@ const STEPS: StepDef[] = [
   {
     key: "discord",
     label: "Join the team Discord server",
-    description: "Join the official hackathon Discord server. Your team channel will be created automatically when your team is approved.",
+    description: "Join the official hackathon Discord server. Your private team channel is created when you register your team.",
     href: DISCORD_INVITE_URL,
     hrefLabel: "Join Discord →",
   },
@@ -2008,9 +2024,9 @@ const STEPS: StepDef[] = [
     },
     dynamic: (isTeamCreator) =&gt; ({
       label: isTeamCreator ? "Create team GitHub repository" : "Join team GitHub repository",
-      description: isTeamCreator 
-        ? "Your team's GitHub repository will be created automatically when your team is approved."
-        : "Access your team's GitHub repository to collaborate on code with your teammates.",
+      description: isTeamCreator
+        ? "You provided your GitHub token during registration to create the team repo. Teammates are added as collaborators automatically."
+        : "You'll be added to your team's GitHub repository when you register.",
     }),
   },
 ];
@@ -2403,9 +2419,17 @@ export default function WizardPlaceholder() {
       const nowAllDone = <span class="cstat-no" title="statement not covered" >dynamicSteps.every(<span class="fstat-no" title="function not covered" >(s</span>) =&gt; <span class="cstat-no" title="statement not covered" >updated[s.key])</span>;</span>
 <span class="cstat-no" title="statement not covered" >      if (nowAllDone &amp;&amp; participant.team_id) {</span>
 <span class="cstat-no" title="statement not covered" >        setInfraCreating(true);</span>
+        const {
+          data: { session },
+        } = <span class="cstat-no" title="statement not covered" >await supabase.auth.getSession();</span>
         const { data: infraResp, error: infraErr } = <span class="cstat-no" title="statement not covered" >await supabase.functions.invoke(</span>
           "create-team-infrastructure",
-          { body: { team_id: participant.team_id } }
+          {
+            body: { team_id: participant.team_id },
+            headers: session?.access_token
+              ? { Authorization: `Bearer ${session.access_token}` }
+              : undefined,
+          }
         );
 <span class="cstat-no" title="statement not covered" >        setInfraCreating(false);</span>
 <span class="cstat-no" title="statement not covered" >        if (infraErr || !infraResp) {</span>
@@ -2812,7 +2836,7 @@ export default function WizardPlaceholder() {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-07-10T18:01:40.212Z
+                at 2026-07-13T16:02:08.305Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
